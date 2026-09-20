@@ -177,6 +177,7 @@ StructTraits<viz::mojom::CopyOutputResultDataView,
       viz::CopyOutputResult::Destination::kSystemMemory) {
     return std::nullopt;
   }
+  if (result->mideo_buffer_written()) return std::nullopt;
   auto scoped_bitmap = result->ScopedAccessSkBitmap();
   if (!scoped_bitmap.bitmap().readyToDraw()) {
     // During shutdown or switching to background on Android, Chrome will
@@ -277,6 +278,15 @@ bool StructTraits<viz::mojom::CopyOutputResultDataView,
     return false;
   }
 
+  if (data.mideo_buffer_written()) {
+    if (format != viz::CopyOutputResult::Format::RGBA ||
+        destination != viz::CopyOutputResult::Destination::kSystemMemory) {
+      return false;
+    }
+    *out_p = std::make_unique<viz::CopyOutputResult>(format, destination, rect, false);
+    (*out_p)->set_mideo_buffer_written();
+    return true;
+  }
   switch (format) {
     case viz::CopyOutputResult::Format::RGBA:
       switch (destination) {

@@ -53,4 +53,5 @@ struct CopyOutputResult {
 
   // Error information for a result.
   CopyOutputResultError error;
+  bool mideo_buffer_written;
 };

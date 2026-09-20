@@ -257,8 +257,13 @@ class PageHandler : public DevToolsDomainHandler,
 
   void ScreenshotCaptured(std::unique_ptr<PendingScreenshotRequest> request,
                           const gfx::Image& image);
-  std::optional<std::vector<uint8_t>> WriteMideoFrame(
-      const SkBitmap& bitmap);
+  void CaptureMideoFrame(const gfx::Size& size,
+                         std::unique_ptr<CaptureScreenshotCallback> callback);
+  void MideoBufferReady(const gfx::Size& size,
+                        std::unique_ptr<CaptureScreenshotCallback> callback,
+                        std::unique_ptr<MideoFrameBuffer> buffer);
+  bool mideo_initializing_ = false;
+  bool mideo_capture_pending_ = false;
 
   // RenderWidgetHostObserver overrides.
   void RenderWidgetHostVisibilityChanged(RenderWidgetHost* widget_host,

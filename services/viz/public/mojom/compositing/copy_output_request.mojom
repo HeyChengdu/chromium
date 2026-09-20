@@ -7,6 +7,7 @@ module viz.mojom;
 import "services/viz/public/mojom/compositing/blit_request.mojom";
 import "services/viz/public/mojom/compositing/copy_output_result.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
+import "mojo/public/mojom/base/file.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 
 // See components/viz/common/frame_sinks/copy_output_request.h.
@@ -23,6 +24,10 @@ struct CopyOutputRequest {
   gfx.mojom.Rect? result_selection;
 
   BlitRequest? blit_request;
+  mojo_base.mojom.File? mideo_file;
+  mojo_base.mojom.UnguessableToken? mideo_id;
+  uint64 mideo_offset;
+  gfx.mojom.Size mideo_size;
 
   pending_remote<CopyOutputResultSender> result_sender;
 };

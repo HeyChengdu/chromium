@@ -8,6 +8,8 @@
 #include <memory>
 
 #include "base/memory/raw_ptr.h"
+#include "base/files/memory_mapped_file.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/service/display/direct_renderer.h"
@@ -76,6 +78,9 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
       const AggregatedRenderPassId& render_pass_id) const override;
 
  private:
+  // 每个显示器仅保留最近一个授权缓冲区；切换会话或销毁显示器时释放。
+  std::unique_ptr<base::MemoryMappedFile> mideo_mapping_;
+  base::UnguessableToken mideo_mapping_id_;
   struct RenderPassBitmapBacking {
     SkBitmap bitmap;
     gfx::Rect drawn_rect;

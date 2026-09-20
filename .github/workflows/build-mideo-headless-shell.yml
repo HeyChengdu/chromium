@@ -16,8 +16,6 @@ jobs:
   linux-x64:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    env:
-      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: Record resources and reclaim hosted runner disk
         run: |
@@ -68,27 +66,24 @@ jobs:
           sudo build/install-build-deps.sh --no-prompt --no-chromeos-fonts
           gclient runhooks
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
       - name: Generate release build
         working-directory: src
         run: |
-          gn gen out/Mideo --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 v8_symbol_level=0 use_remoteexec=false use_siso=false chrome_pgo_phase=0 treat_warnings_as_errors=true cc_wrapper="sccache"'
+          gn gen out/Mideo --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 v8_symbol_level=0 use_remoteexec=false use_siso=false chrome_pgo_phase=0 treat_warnings_as_errors=true'
+
+      - name: Compile modified translation units first
+        working-directory: src
+        run: python3 tools/mideo/check-changed-units.py
 
       - name: Build headless shell
         working-directory: src
         run: |
           set -o pipefail
-          # 保留时间上传诊断和编译缓存；超时仍标记失败，不能冒充成功产物。
-          timeout --signal=INT --kill-after=60s 210m autoninja -C out/Mideo -j 4 headless_shell 2>&1 | tee ../build-diagnostics/build.log
-
-      - name: Verify persistent BGRA frame buffer
-        timeout-minutes: 5
-        working-directory: src
-        run: |
-          python3 -m venv .mideo-test-venv
-          .mideo-test-venv/bin/pip install websocket-client==1.8.0
-          .mideo-test-venv/bin/python tools/mideo/shared_frame_buffer_smoke.py out/Mideo/headless_shell
+          # 仅使用任务的 360 分钟上限，不再提前结束编译。
+          vmstat 30 > ../build-diagnostics/vmstat.log &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          autoninja -C out/Mideo -j 4 headless_shell 2>&1 | tee ../build-diagnostics/build.log
 
       - name: Package runtime
         working-directory: src
@@ -97,12 +92,15 @@ jobs:
           cp out/Mideo/headless_shell artifact/
           find out/Mideo -maxdepth 1 -type f \( -name '*.pak' -o -name '*.bin' -o -name '*.dat' \) -exec cp {} artifact/ \;
           if [ -d out/Mideo/locales ]; then cp -a out/Mideo/locales/. artifact/locales/; fi
+          find out/Mideo -maxdepth 1 -type f -name '*.so' -exec cp {} artifact/ \;
+          if [ -d out/Mideo/swiftshader ]; then cp -a out/Mideo/swiftshader artifact/; fi
           cp docs/mideo-shared-frame-buffer.md artifact/
+          printf '%s\n' "$GITHUB_SHA" > artifact/chromium-commit.txt
           tar -C artifact -czf mideo-headless-shell-linux-x64.tar.gz .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mideo-headless-shell-linux-x64-${{ github.sha }}
+          name: candidate-headless-shell-${{ github.sha }}
           path: src/mideo-headless-shell-linux-x64.tar.gz
           if-no-files-found: error
           retention-days: 14
@@ -111,11 +109,74 @@ jobs:
         if: always()
         run: |
           { free -h; df -h; du -sh src/out src/third_party 2>/dev/null || true; } > build-diagnostics/resources-final.txt
-          if command -v sccache >/dev/null; then sccache --show-stats > build-diagnostics/cache.txt; fi
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mideo-build-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: build-diagnostics/
+          retention-days: 14
+
+  media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - name: Build matching FFmpeg with shared input
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm pkg-config build-essential zlib1g-dev
+          python3 tools/mideo/build-media.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-media-${{ github.sha }}
+          path: media-artifact/
+          retention-days: 14
+
+  verify:
+    needs: [linux-x64, media]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-headless-shell-${{ github.sha }}
+          path: candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-media-${{ github.sha }}
+          path: runtime
+      - name: Verify pixels, frame ordering, encoding and capture latency
+        timeout-minutes: 30
+        run: |
+          tar -xzf candidate/mideo-headless-shell-linux-x64.tar.gz -C runtime
+          chmod +x runtime/ffmpeg runtime/ffprobe runtime/headless_shell
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 fonts-noto-cjk
+          python3 -m venv .venv
+          .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
+          .venv/bin/python tools/mideo/shared_frame_buffer_smoke.py "$PWD/runtime/headless_shell" "$PWD/runtime/ffmpeg" --report runtime/validation.json
+      - name: Package verified runtime and source adapters
+        run: |
+          cp -a tools/mideo runtime/source-adapters
+          tar -C runtime -czf mideo-shared-runtime-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mideo-shared-runtime-linux-x64-${{ github.sha }}
+          path: mideo-shared-runtime-linux-x64.tar.gz
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-validation-${{ github.sha }}
+          path: |
+            runtime/validation.json
+            runtime/verification/
+          if-no-files-found: warn
           retention-days: 14

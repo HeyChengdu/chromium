@@ -114,6 +114,10 @@ namespace ui {
 enum class DomCode : uint32_t;
 }
 
+namespace viz {
+class CopyOutputRequest;
+}
+
 namespace content {
 class FrameTree;
 class MockRenderWidgetHost;
@@ -446,6 +450,8 @@ class CONTENT_EXPORT RenderWidgetHostImpl
   // defined.
   // Returns a gfx::Image that is backed by an NSImage on MacOS or by an
   // SkBitmap otherwise. The gfx::Image may be empty if the snapshot failed.
+  void CaptureMideoFrame(std::unique_ptr<viz::CopyOutputRequest> request);
+
   using GetSnapshotFromBrowserCallback =
       base::OnceCallback<void(const gfx::Image&)>;
   void GetSnapshotFromBrowser(GetSnapshotFromBrowserCallback callback,

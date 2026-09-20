@@ -55,6 +55,10 @@ struct EnumTraits<viz::mojom::CopyOutputResultError,
 template <>
 struct StructTraits<viz::mojom::CopyOutputResultDataView,
                     std::unique_ptr<viz::CopyOutputResult>> {
+  static bool mideo_buffer_written(
+      const std::unique_ptr<viz::CopyOutputResult>& result) {
+    return result->mideo_buffer_written();
+  }
   static viz::CopyOutputResult::Format format(
       const std::unique_ptr<viz::CopyOutputResult>& result);
 

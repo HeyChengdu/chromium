@@ -160,6 +160,19 @@ StructTraits<viz::mojom::CopyOutputRequestDataView,
     return base::unexpected(DeserializationError());
   }
 
+  if (!data.ReadMideoFile(&request->mideo_file_) ||
+      !data.ReadMideoId(&request->mideo_id_) ||
+      !data.ReadMideoSize(&request->mideo_size_)) {
+    return base::unexpected(DeserializationError());
+  }
+  request->mideo_offset_ = data.mideo_offset();
+  if (request->has_mideo_buffer() &&
+      (!request->mideo_file_.IsValid() || request->mideo_size_.IsEmpty() ||
+       request->is_scaled() || request->has_blit_request() ||
+       result_format != viz::CopyOutputResult::Format::RGBA ||
+       result_destination != viz::CopyOutputResult::Destination::kSystemMemory)) {
+    return base::unexpected(DeserializationError());
+  }
   *out_p = std::move(request);
 
   return base::ok();

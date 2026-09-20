@@ -58,6 +58,7 @@
 #include "components/viz/common/features.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/host/host_frame_sink_manager.h"
+#include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
@@ -2328,6 +2329,21 @@ void RenderWidgetHostImpl::NotifyScreenInfoChanged(bool ignore_ack) {
   if (auto* touch_emulator = GetTouchEmulator(/*create_if_necessary=*/false)) {
     touch_emulator->SetDeviceScaleFactor(GetScaleFactorForView(view_.get()));
   }
+}
+
+void RenderWidgetHostImpl::CaptureMideoFrame(
+    std::unique_ptr<viz::CopyOutputRequest> request) {
+  // 与 CDP 新 Surface 截图保持同一同步顺序；失败不能读取旧 Surface。
+  if (!view_ || !blink_widget_.is_bound()) return;
+  blink_widget_->ForceRedraw(base::DoNothing());
+  const auto previous_surface = view_->GetCurrentSurfaceId();
+  // 有待确认的 VisualProperties 时发送可能延后，但 Surface 身份已经推进。
+  RequestRepaintOnNewSurface();
+  const auto surface = view_->GetCurrentSurfaceId();
+  if (!surface.is_valid() || surface == previous_surface) return;
+  request->set_result_task_runner(base::SingleThreadTaskRunner::GetCurrentDefault());
+  GetHostFrameSinkManager()->RequestCopyOfOutput(
+      surface, std::move(request), false, base::Seconds(15));
 }
 
 void RenderWidgetHostImpl::GetSnapshotFromBrowser(

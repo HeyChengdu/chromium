@@ -3515,6 +3515,7 @@ void SkiaRenderer::CopyDrawnRenderPass(
   // TODO(weiliangc): Make copy request work. (crbug.com/644851)
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("viz.quads"),
                "SkiaRenderer::CopyDrawnRenderPass");
+  if (request->has_mideo_buffer()) return;
 
   // Root framebuffer uses a zero-mailbox in SkiaOutputSurface.
   gpu::Mailbox mailbox;

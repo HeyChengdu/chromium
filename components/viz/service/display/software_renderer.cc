@@ -638,6 +638,47 @@ void SoftwareRenderer::CopyDrawnRenderPass(
   sk_sp<SkColorSpace> color_space = CurrentRenderPassSkColorSpace();
   DCHECK(color_space);
 
+  if (request->has_mideo_buffer()) {
+    const gfx::Size size = request->mideo_size();
+    if (request->is_scaled() || size != geometry.result_selection.size() ||
+        !color_space->isSRGB()) {
+      return;
+    }
+    // 受控导出只支持固定尺寸、无缩放的 sRGB 软件合成。
+    // 每个像素只从合成画布写出一次，不分配中间 SkBitmap。
+    const uint64_t stride = static_cast<uint64_t>(size.width()) * 4;
+    const uint64_t bytes = stride * static_cast<uint64_t>(size.height());
+    if (!mideo_mapping_ || mideo_mapping_id_ != request->mideo_id()) {
+      auto mapping = std::make_unique<base::MemoryMappedFile>();
+      if (!mapping->Initialize(request->TakeMideoFile(),
+                               base::MemoryMappedFile::READ_WRITE)) {
+        return;
+      }
+      mideo_mapping_ = std::move(mapping);
+      mideo_mapping_id_ = request->mideo_id();
+    }
+    const uint64_t offset = request->mideo_offset();
+    if (offset > mideo_mapping_->length() ||
+        bytes > mideo_mapping_->length() - offset) {
+      return;
+    }
+    auto destination = mideo_mapping_->mutable_bytes().subspan(offset, bytes);
+    const SkImageInfo info = SkImageInfo::Make(
+        size.width(), size.height(), kBGRA_8888_SkColorType,
+        kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
+    if (!current_canvas_->readPixels(info, destination.data(), stride,
+                                     geometry.readback_offset.x(),
+                                     geometry.readback_offset.y())) {
+      return;
+    }
+    auto result = std::make_unique<CopyOutputResult>(
+        request->result_format(), request->result_destination(),
+        geometry.result_selection, false);
+    result->set_mideo_buffer_written();
+    request->SendResult(std::move(result));
+    return;
+  }
+
   SkBitmap bitmap;
   if (request->is_scaled()) {
     // Resolve the source for the scaling input: Initialize a SkPixmap that
