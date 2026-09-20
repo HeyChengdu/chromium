@@ -1,0 +1,73 @@
+name: Verify existing Mideo runtimes
+on:
+  workflow_dispatch:
+    inputs:
+      chromium_run:
+        description: Chromium 候选产物所在运行 ID
+        required: true
+        type: string
+      chromium_commit:
+        description: Chromium 完整提交 SHA
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - name: Fetch pinned candidates without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHROMIUM_RUN: ${{ inputs.chromium_run }}
+          CHROMIUM_COMMIT: ${{ inputs.chromium_commit }}
+        run: |
+          python3 tools/mideo/fetch-media.py
+          mv media-artifact runtime
+          python3 - <<'PYTHON'
+          import json, os, re, subprocess
+          from pathlib import Path
+          run_id, commit = os.environ['CHROMIUM_RUN'], os.environ['CHROMIUM_COMMIT']
+          assert run_id.isdigit() and re.fullmatch('[0-9a-f]{40}', commit)
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}']))
+          assert run['head_sha'] == commit and run['status'] == 'completed'
+          subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium', '--name', f'candidate-headless-shell-{commit}', '--dir', 'candidate'], check=True)
+          Path('runtime/chromium-source.json').write_text(json.dumps({'commit': commit, 'runId': run_id}))
+          PYTHON
+      - name: Verify pixels, frame ordering, encoding and capture latency
+        timeout-minutes: 30
+        env:
+          EXPECTED_CHROMIUM_COMMIT: ${{ inputs.chromium_commit }}
+        run: |
+          tar -xzf candidate/mideo-headless-shell-linux-x64.tar.gz -C runtime
+          test "$(cat runtime/chromium-commit.txt)" = "$EXPECTED_CHROMIUM_COMMIT"
+          chmod +x runtime/ffmpeg runtime/ffprobe runtime/headless_shell
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 fonts-noto-cjk
+          python3 -m venv .venv
+          .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
+          .venv/bin/python tools/mideo/shared_frame_buffer_smoke.py "$PWD/runtime/headless_shell" "$PWD/runtime/ffmpeg" --report runtime/validation.json
+      - name: Package verified runtime and source adapters
+        run: |
+          cp -a tools/mideo runtime/source-adapters
+          tar -C runtime -czf mideo-shared-runtime-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mideo-shared-runtime-linux-x64-${{ github.run_id }}
+          path: mideo-shared-runtime-linux-x64.tar.gz
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-validation-${{ github.run_id }}
+          path: |
+            runtime/validation.json
+            runtime/verification/
+          if-no-files-found: warn
+          retention-days: 14

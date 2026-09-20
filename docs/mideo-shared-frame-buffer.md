@@ -122,3 +122,5 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 FFmpeg 源码及构建已迁移到 https://github.com/HeyChengdu/FFmpeg 的 mideo-shared-input 分支，基于 n9.0.1。Chromium 不再下载 FFmpeg 源码或注入注册补丁，也不编译 FFmpeg。tools/mideo/ffmpeg-artifact-lock.json 固定完整提交，fetch-media.py 仅接受该提交的成功构建，并校验提交文件与二进制 SHA256SUMS，保留来源 runId 和校验和。media job 现在只获取独立产物；media_only 参数只执行获取。
 
 独立产物是候选版本，仍须 Chromium verify 完成像素、编码与性能联合验收才能发布为组合运行时。Actions 产物保留90天，过期需明确重建固定提交。之前的“单独修复媒体构建”流程由本节替代。
+
+独立联合验收入口为 verify-mideo-runtimes.yml：传入 Chromium 完整提交及运行 ID，校验运行来源和包内提交，再与固定 FFmpeg 候选组合；不重新编译任何一端。允许使用整体运行失败但 linux-x64 已成功上传的候选产物，最终仍须联合验收通过。
