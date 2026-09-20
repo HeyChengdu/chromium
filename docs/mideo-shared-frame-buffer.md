@@ -116,3 +116,9 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 ### 单独修复媒体构建
 
 工作流手动触发参数 `media_only=true` 只构建 FFmpeg，使用独立并发组，不中断正在运行的 Chromium 构建。此模式仅生成候选媒体产物，不执行完整像素与编码验收，也不生成已验证运行时。FFmpeg 自定义输入声明必须位于生成的 demuxer 列表之前。
+
+### FFmpeg 独立仓库
+
+FFmpeg 源码及构建已迁移到 https://github.com/HeyChengdu/FFmpeg 的 mideo-shared-input 分支，基于 n9.0.1。Chromium 不再下载 FFmpeg 源码或注入注册补丁，也不编译 FFmpeg。tools/mideo/ffmpeg-artifact-lock.json 固定完整提交，fetch-media.py 仅接受该提交的成功构建，并校验提交文件与二进制 SHA256SUMS，保留来源 runId 和校验和。media job 现在只获取独立产物；media_only 参数只执行获取。
+
+独立产物是候选版本，仍须 Chromium verify 完成像素、编码与性能联合验收才能发布为组合运行时。Actions 产物保留90天，过期需明确重建固定提交。之前的“单独修复媒体构建”流程由本节替代。

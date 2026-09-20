@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       media_only:
-        description: 仅构建 FFmpeg，共享内存端到端验收仍需完整构建
+        description: 仅获取固定 FFmpeg 产物，不编译 Chromium
         type: boolean
         default: false
   push:
@@ -130,11 +130,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: tools/mideo
-      - name: Build matching FFmpeg with shared input
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm pkg-config build-essential zlib1g-dev
-          python3 tools/mideo/build-media.py
+      - name: Fetch independently built FFmpeg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/mideo/fetch-media.py
       - uses: actions/upload-artifact@v4
         with:
           name: candidate-media-${{ github.sha }}
