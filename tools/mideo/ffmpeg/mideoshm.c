@@ -3,6 +3,12 @@
  * 色彩转换直接写入编码输入 YUV；转换完成后才确认消费，不保留源槽引用。
  * 与 FFmpeg 同许可：LGPL-2.1-or-later。
  */
+/* 在系统头之前声明 POSIX.1-2008，以暴露 O_CLOEXEC。 */
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#include "config.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
