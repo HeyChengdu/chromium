@@ -1,0 +1,121 @@
+name: Build Mideo Headless Shell
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [mideo-raw-frame-capture]
+
+concurrency:
+  group: mideo-headless-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - name: Record resources and reclaim hosted runner disk
+        run: |
+          mkdir -p build-diagnostics
+          { nproc; free -h; df -h; } | tee build-diagnostics/resources-before.txt
+          # 仅清理一次性的 GitHub 托管虚拟机中与 Linux Chromium 无关的工具链。
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+          sudo apt-get clean
+          { nproc; free -h; df -h; } | tee build-diagnostics/resources-after.txt
+          python3 - <<'PYTHON'
+          import os, shutil
+          memory = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+          disk = shutil.disk_usage('.').free
+          assert memory >= 12 * 1024**3, 'Requires at least 12 GiB RAM'
+          assert disk >= 45 * 1024**3, 'Insufficient disk even for a constrained build attempt'
+          PYTHON
+
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          fetch-depth: 1
+
+      - name: Install depot_tools
+        run: |
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
+          echo "$GITHUB_WORKSPACE/depot_tools" >> "$GITHUB_PATH"
+
+      - name: Synchronize Chromium dependencies
+        timeout-minutes: 100
+        run: |
+          cat > .gclient <<'EOF'
+          solutions = [{
+            "name": "src",
+            "url": "https://github.com/HeyChengdu/chromium.git",
+            "managed": False,
+            "custom_deps": {},
+            "custom_vars": {},
+          }]
+          target_os = ["linux"]
+          EOF
+          gclient sync --no-history --shallow --nohooks --jobs 4 --revision "src@$GITHUB_SHA" 2>&1 | tee build-diagnostics/sync.log
+          test "$(git -C src rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install Linux build dependencies
+        working-directory: src
+        run: |
+          sudo build/install-build-deps.sh --no-prompt --no-chromeos-fonts
+          gclient runhooks
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Generate release build
+        working-directory: src
+        run: |
+          gn gen out/Mideo --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 v8_symbol_level=0 use_remoteexec=false use_siso=false chrome_pgo_phase=0 treat_warnings_as_errors=true cc_wrapper="sccache"'
+
+      - name: Build headless shell
+        working-directory: src
+        run: |
+          set -o pipefail
+          # 保留时间上传诊断和编译缓存；超时仍标记失败，不能冒充成功产物。
+          timeout --signal=INT --kill-after=60s 210m autoninja -C out/Mideo -j 4 headless_shell 2>&1 | tee ../build-diagnostics/build.log
+
+      - name: Verify persistent BGRA frame buffer
+        timeout-minutes: 5
+        working-directory: src
+        run: |
+          python3 -m venv .mideo-test-venv
+          .mideo-test-venv/bin/pip install websocket-client==1.8.0
+          .mideo-test-venv/bin/python tools/mideo/shared_frame_buffer_smoke.py out/Mideo/headless_shell
+
+      - name: Package runtime
+        working-directory: src
+        run: |
+          mkdir -p artifact/locales
+          cp out/Mideo/headless_shell artifact/
+          find out/Mideo -maxdepth 1 -type f \( -name '*.pak' -o -name '*.bin' -o -name '*.dat' \) -exec cp {} artifact/ \;
+          if [ -d out/Mideo/locales ]; then cp -a out/Mideo/locales/. artifact/locales/; fi
+          cp docs/mideo-shared-frame-buffer.md artifact/
+          tar -C artifact -czf mideo-headless-shell-linux-x64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mideo-headless-shell-linux-x64-${{ github.sha }}
+          path: src/mideo-headless-shell-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Collect final resource usage
+        if: always()
+        run: |
+          { free -h; df -h; du -sh src/out src/third_party 2>/dev/null || true; } > build-diagnostics/resources-final.txt
+          if command -v sccache >/dev/null; then sccache --show-stats > build-diagnostics/cache.txt; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-build-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build-diagnostics/
+          retention-days: 14

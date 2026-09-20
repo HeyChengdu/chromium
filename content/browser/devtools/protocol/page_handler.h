@@ -56,6 +56,8 @@ class WebContentsImpl;
 
 namespace protocol {
 
+class MideoFrameBuffer;
+
 class BrowserHandler;
 class EmulationHandler;
 class MediaRecorder;
@@ -158,6 +160,7 @@ class PageHandler : public DevToolsDomainHandler,
       std::optional<bool> capture_beyond_viewport,
       std::optional<bool> optimize_for_speed,
       std::unique_ptr<CaptureScreenshotCallback> callback) override;
+  Response ReleaseMideoFrame(int slot, const std::string& sequence) override;
   void CaptureSnapshot(
       std::optional<std::string> format,
       std::unique_ptr<CaptureSnapshotCallback> callback) override;
@@ -254,6 +257,8 @@ class PageHandler : public DevToolsDomainHandler,
 
   void ScreenshotCaptured(std::unique_ptr<PendingScreenshotRequest> request,
                           const gfx::Image& image);
+  std::optional<std::vector<uint8_t>> WriteMideoFrame(
+      const SkBitmap& bitmap);
 
   // RenderWidgetHostObserver overrides.
   void RenderWidgetHostVisibilityChanged(RenderWidgetHost* widget_host,
@@ -293,6 +298,7 @@ class PageHandler : public DevToolsDomainHandler,
   int frames_in_flight_ = 0;
   std::unique_ptr<Page::ScreencastFrameMetadata> last_frame_metadata_;
   SkBitmap last_frame_;
+  std::unique_ptr<MideoFrameBuffer> mideo_frame_buffer_;
 
   // |video_consumer_| consumes video frames from FrameSinkVideoCapturerImpl,
   // and provides PageHandler with these frames via OnFrameFromVideoConsumer.

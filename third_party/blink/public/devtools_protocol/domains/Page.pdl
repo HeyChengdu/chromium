@@ -588,6 +588,10 @@ domain Page
         jpeg
         png
         webp
+        # Writes uncompressed BGRA pixels into the persistent frame buffer
+        # configured by --mideo-frame-buffer. Intended for trusted offline
+        # renderers; the returned binary contains only slot metadata.
+        mideo-shm
       # Compression quality from range [0..100] (jpeg only).
       optional integer quality
       # Capture the screenshot of a given region only.
@@ -601,6 +605,12 @@ domain Page
     returns
       # Base64-encoded image data.
       binary data
+
+  # Releases a Mideo shared-memory slot after the consumer has finished reading.
+  experimental command releaseMideoFrame
+    parameters
+      integer slot
+      string sequence
 
   # Returns a snapshot of the page as a string. For MHTML format, the serialization includes
   # iframes, shadow DOM, external resources, and element-inline styles.
