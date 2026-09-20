@@ -75,7 +75,7 @@ jobs:
       - name: Generate release build
         working-directory: src
         run: |
-          gn gen out/Mideo --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 v8_symbol_level=0 use_remoteexec=false use_siso=false chrome_pgo_phase=0 treat_warnings_as_errors=true enable_pdf=false enable_printing=false use_cups=false enable_plugins=false headless_enable_commands=false'
+          gn gen out/Mideo --root-target=//headless:headless_shell --root-pattern=//headless:headless_shell --args='is_debug=false is_component_build=false symbol_level=0 blink_symbol_level=0 v8_symbol_level=0 use_remoteexec=false use_siso=false chrome_pgo_phase=0 treat_warnings_as_errors=true enable_pdf=false enable_printing=false use_cups=false enable_plugins=false headless_enable_commands=false'
 
       - name: Compile modified translation units first
         working-directory: src

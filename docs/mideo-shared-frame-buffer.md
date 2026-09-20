@@ -124,3 +124,7 @@ FFmpeg 源码及构建已迁移到 https://github.com/HeyChengdu/FFmpeg 的 mide
 独立产物是候选版本，仍须 Chromium verify 完成像素、编码与性能联合验收才能发布为组合运行时。Actions 产物保留90天，过期需明确重建固定提交。之前的“单独修复媒体构建”流程由本节替代。
 
 独立联合验收入口为 verify-mideo-runtimes.yml：传入 Chromium 完整提交及运行 ID，校验运行来源和包内提交，再与固定 FFmpeg 候选组合；不重新编译任何一端。允许使用整体运行失败但 linux-x64 已成功上传的候选产物，最终仍须联合验收通过。
+
+### Headless 构建图范围
+
+GN 使用 `--root-target=//headless:headless_shell --root-pattern=//headless:headless_shell`，仅生成导出运行时及其传递依赖。完整 Chrome 菜单和测试目标不属于本产物，不应因默认全仓构建图而拉入已关闭的 PDF/打印模块。此调整保留原裁剪开关，不跳过 headless 实际依赖的编译和联合验收。GN 官方 setup.cc 的 FillOtherConfig 实现支持这两个参数，实际生成结果由 CI 验证。
