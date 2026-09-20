@@ -128,3 +128,5 @@ FFmpeg 源码及构建已迁移到 https://github.com/HeyChengdu/FFmpeg 的 mide
 ### Headless 构建图范围
 
 GN 使用 `--root-target=//headless:headless_shell --root-pattern=//headless:headless_shell`，仅生成导出运行时及其传递依赖。完整 Chrome 菜单和测试目标不属于本产物，不应因默认全仓构建图而拉入已关闭的 PDF/打印模块。此调整保留原裁剪开关，不跳过 headless 实际依赖的编译和联合验收。GN 官方 setup.cc 的 FillOtherConfig 实现支持这两个参数，实际生成结果由 CI 验证。
+
+构建入口已固化在 `.gn` 的 `root` 与 `root_patterns`，不再仅向 `gn gen` 传参。V8 metagen 在编译中独立调用 `gn desc`，也必须读取同一入口；CI 在编译前先执行对应 V8 目标查询，失败时直接保留错误。
