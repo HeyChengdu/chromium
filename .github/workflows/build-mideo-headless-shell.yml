@@ -2,11 +2,16 @@ name: Build Mideo Headless Shell
 
 on:
   workflow_dispatch:
+    inputs:
+      media_only:
+        description: 仅构建 FFmpeg，共享内存端到端验收仍需完整构建
+        type: boolean
+        default: false
   push:
     branches: [mideo-raw-frame-capture]
 
 concurrency:
-  group: mideo-headless-${{ github.ref }}
+  group: mideo-headless-${{ github.ref }}-${{ inputs.media_only == true && 'media' || 'full' }}
   cancel-in-progress: false
 
 permissions:
@@ -14,6 +19,7 @@ permissions:
 
 jobs:
   linux-x64:
+    if: ${{ inputs.media_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:

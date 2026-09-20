@@ -43,8 +43,14 @@ ffmpeg = extract('ffmpegSource')
 shutil.copyfile(root / 'ffmpeg/mideoshm.c', ffmpeg / 'libavformat/mideoshm.c')
 with (ffmpeg / 'libavformat/Makefile').open('a') as f:
     f.write('\nOBJS-$(CONFIG_MIDEOSHM_DEMUXER) += mideoshm.o\n')
-with (ffmpeg / 'libavformat/allformats.c').open('a') as f:
-    f.write('\nextern const FFInputFormat ff_mideoshm_demuxer;\n')
+# 声明必须出现在生成的 demuxer_list.c 引用之前。
+formats = ffmpeg / 'libavformat/allformats.c'
+source = formats.read_text()
+anchor = 'extern const FFInputFormat '
+if anchor not in source or 'ff_mideoshm_demuxer' in source:
+    raise RuntimeError('Unexpected FFmpeg demuxer registration layout')
+source = source.replace(anchor, 'extern const FFInputFormat ff_mideoshm_demuxer;\n' + anchor, 1)
+formats.write_text(source)
 env = dict(os.environ, PKG_CONFIG_PATH=str(prefix / 'lib/pkgconfig'))
 run(['./configure', f'--prefix={prefix}', *lock['ffmpegConfigure'],
      '--enable-demuxer=mideoshm', '--enable-swscale',
