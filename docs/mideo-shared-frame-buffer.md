@@ -90,6 +90,14 @@ Chromium、同源媒体构建、真实验证分别运行在独立 job；验证�
 平台 6 小时上限包含该 job 的源码准备与上传，不能保证获得整整 360 分钟纯编译时间。
 也不能保证超时后的 always 步骤仍有机会保存产物。未验证构建只标为 candidate。
 
+## 截图专用构建裁剪
+
+关闭 PDF（`enable_pdf=false`）、打印与 CUPS（`enable_printing=false use_cups=false`）、
+插件支持（`enable_plugins=false`）及 Shell 命令行截图/打印入口
+（`headless_enable_commands=false`）。这是四类功能、五个构建参数。
+CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力不在此次裁剪范围内。
+此组合的编译兼容性与截图效果由同一 CI 门禁验证；编译加速幅度尚未实测。
+
 ## 验收门禁
 
 `shared_frame_buffer_smoke.py` 使用真实二进制，检查：
