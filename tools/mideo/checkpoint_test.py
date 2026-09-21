@@ -58,6 +58,18 @@ class CheckpointTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'missing'):
                 checkpoint.restore(root, manifest, 'commit')
 
+    def test_identical_locks_keep_exact_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'src'
+            packages = root / 'third_party/depot_tools/.cipd_bin/.cipd/pkgs'
+            for slot in ('1', '2'):
+                folder = packages / slot
+                folder.mkdir(parents=True)
+                (folder / '.lock').write_text('')
+            manifest = Path(directory) / 'inputs.gz'
+            checkpoint.snapshot(root, manifest, 'commit')
+            checkpoint.restore(root, manifest, 'commit')
+
     def test_excludes_outputs_and_rejects_missing_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'src'

@@ -50,7 +50,11 @@ def restore(root, manifest, commit):
         # CIPD 安装槽编号不是包标识；必须在另一槽找到相同实例路径和完整内容。
         parts = relative.parts
         prefix = ('third_party', 'depot_tools', '.cipd_bin', '.cipd', 'pkgs')
-        if parts[:5] == prefix and len(parts) > 6 and parts[5].isdigit():
+        exact_match = (path.is_file() and not path.is_symlink()
+                       and path.stat().st_size == size and path.stat().st_mode == mode
+                       and digest(path) == sha)
+        if (not exact_match and parts[:5] == prefix
+                and len(parts) > 6 and parts[5].isdigit()):
             candidates = (root.joinpath(*prefix)).glob('*/' + '/'.join(parts[6:]))
             matched = []
             for candidate in candidates:
