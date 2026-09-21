@@ -48,6 +48,12 @@ def restore(root, manifest, commit):
         path = root / relative
         if not path.is_file() or path.is_symlink():
             raise RuntimeError(f'Checkpoint input missing: {name}')
+        # depot_tools 禁止自动更新的标记只检查存在性，内容包含每次运行时间。
+        # update_depot_tools_toggle.py 写入时间；不作为编译输入恢复时间戳。
+        if name == 'third_party/depot_tools/.disable_auto_update':
+            if not path.read_text().startswith('Disabled by '):
+                raise RuntimeError('Unexpected depot_tools sentinel format')
+            continue
         stat = path.stat()
         if stat.st_size != size or stat.st_mode != mode or digest(path) != sha:
             raise RuntimeError(f'Checkpoint input changed: {name}')

@@ -28,6 +28,21 @@ class CheckpointTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'commit'):
                 checkpoint.restore(root, manifest, 'other')
 
+    def test_timestamp_sentinel_does_not_weaken_source_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'src'
+            folder = root / 'third_party/depot_tools'
+            folder.mkdir(parents=True)
+            marker = folder / '.disable_auto_update'
+            marker.write_text('Disabled by script at yesterday')
+            manifest = Path(directory) / 'inputs.gz'
+            checkpoint.snapshot(root, manifest, 'commit')
+            marker.write_text('Disabled by script at today')
+            checkpoint.restore(root, manifest, 'commit')
+            marker.write_text('unexpected')
+            with self.assertRaisesRegex(RuntimeError, 'sentinel'):
+                checkpoint.restore(root, manifest, 'commit')
+
     def test_excludes_outputs_and_rejects_missing_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'src'

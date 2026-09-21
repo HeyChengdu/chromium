@@ -140,3 +140,5 @@ GN 使用 `--root-target=//headless:headless_shell --root-pattern=//headless:hea
 手动workflow_dispatch的resume_run填上轮ID，并使用完全相同提交。恢复核对上轮提交、压缩包校验和及每个输入内容/权限；绝对路径也必须相同。任何工具链或生成输入变化均拒绝恢复，不能静默混用旧对象。仅核验通过才恢复输入时间戳与原输出。此版本只支持同提交续编，尚不提供跨提交增量缓存。产物保留7天，无额外付费资源；上传是否能在预算内完成、实际恢复复用率均待CI验证。
 
 修改单元已经在上一轮通过，本轮直接构建headless_shell（其中仍包含这些单元），避免把单元预检时间放在有界编译计时之外。全部联合验收仍保留。
+
+恢复控制脚本与编译源码可分离：build_commit固定编译源码完整SHA，controller读取当前工作流提交的恢复脚本；checkpoint仍必须属于build_commit，不允许跨源码提交复用。唯一时间标记例外为third_party/depot_tools/.disable_auto_update：上游脚本写入当前时间，但语义仅为存在即禁用自动更新；要求文件存在且格式匹配，不恢复其mtime。其余源码和工具链仍严格核验。

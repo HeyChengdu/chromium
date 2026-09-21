@@ -3,6 +3,10 @@ name: Build Mideo Headless Shell
 on:
   workflow_dispatch:
     inputs:
+      build_commit:
+        description: 编译源码完整SHA，留空使用当前提交；恢复脚本可独立修复
+        type: string
+        default: ''
       resume_run:
         description: 相同提交的 checkpoint 运行 ID，首次留空
         type: string
@@ -27,6 +31,8 @@ jobs:
     if: ${{ inputs.media_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      BUILD_COMMIT: ${{ inputs.build_commit || github.sha }}
     steps:
       - name: Record resources and reclaim hosted runner disk
         run: |
@@ -48,6 +54,12 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          path: controller
+          sparse-checkout: tools/mideo
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
           path: src
           fetch-depth: 1
 
@@ -69,8 +81,8 @@ jobs:
           }]
           target_os = ["linux"]
           EOF
-          gclient sync --no-history --shallow --nohooks --jobs 4 --revision "src@$GITHUB_SHA" 2>&1 | tee build-diagnostics/sync.log
-          test "$(git -C src rev-parse HEAD)" = "$GITHUB_SHA"
+          gclient sync --no-history --shallow --nohooks --jobs 4 --revision "src@$BUILD_COMMIT" 2>&1 | tee build-diagnostics/sync.log
+          test "$(git -C src rev-parse HEAD)" = "$BUILD_COMMIT"
 
       - name: Install Linux build dependencies
         working-directory: src
@@ -89,12 +101,12 @@ jobs:
           run_id = os.environ['RESUME_RUN']
           assert run_id.isdigit()
           run = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}']))
-          assert run['head_sha'] == os.environ['GITHUB_SHA'] and run['status'] == 'completed'
-          subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium', '--name', 'mideo-checkpoint-' + os.environ['GITHUB_SHA'], '--dir', 'checkpoint'], check=True)
+          assert run['head_sha'] == os.environ['BUILD_COMMIT'] and run['status'] == 'completed'
+          subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium', '--name', 'mideo-checkpoint-' + os.environ['BUILD_COMMIT'], '--dir', 'checkpoint'], check=True)
           PYTHON
           (cd checkpoint && sha256sum -c SHA256SUMS)
           cd src
-          python3 tools/mideo/checkpoint.py restore ../checkpoint/inputs.json.gz
+          python3 ../controller/tools/mideo/checkpoint.py restore ../checkpoint/inputs.json.gz
           tar --zstd -xf ../checkpoint/out.tar.zst
           rm ../checkpoint/out.tar.zst
 
@@ -111,7 +123,7 @@ jobs:
         working-directory: src
         run: |
           mkdir -p ../checkpoint
-          python3 tools/mideo/checkpoint.py snapshot ../checkpoint/inputs.json.gz
+          python3 ../controller/tools/mideo/checkpoint.py snapshot ../checkpoint/inputs.json.gz
 
       - name: Build headless shell with six workers
         id: build
@@ -144,7 +156,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ steps.build.outputs.exit_code == '124' }}
         with:
-          name: mideo-checkpoint-${{ github.sha }}
+          name: mideo-checkpoint-${{ env.BUILD_COMMIT }}
           path: checkpoint/
           compression-level: 0
           retention-days: 7
@@ -166,12 +178,12 @@ jobs:
           find out/Mideo -maxdepth 1 -type f -name '*.so' -exec cp {} artifact/ \;
           if [ -d out/Mideo/swiftshader ]; then cp -a out/Mideo/swiftshader artifact/; fi
           cp docs/mideo-shared-frame-buffer.md artifact/
-          printf '%s\n' "$GITHUB_SHA" > artifact/chromium-commit.txt
+          printf '%s\n' "$BUILD_COMMIT" > artifact/chromium-commit.txt
           tar -C artifact -czf mideo-headless-shell-linux-x64.tar.gz .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: candidate-headless-shell-${{ github.sha }}
+          name: candidate-headless-shell-${{ env.BUILD_COMMIT }}
           path: src/mideo-headless-shell-linux-x64.tar.gz
           if-no-files-found: error
           retention-days: 14
@@ -215,7 +227,7 @@ jobs:
           sparse-checkout: tools/mideo
       - uses: actions/download-artifact@v4
         with:
-          name: candidate-headless-shell-${{ github.sha }}
+          name: candidate-headless-shell-${{ inputs.build_commit || github.sha }}
           path: candidate
       - uses: actions/download-artifact@v4
         with:
