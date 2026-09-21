@@ -142,3 +142,5 @@ GN 使用 `--root-target=//headless:headless_shell --root-pattern=//headless:hea
 修改单元已经在上一轮通过，本轮直接构建headless_shell（其中仍包含这些单元），避免把单元预检时间放在有界编译计时之外。全部联合验收仍保留。
 
 恢复控制脚本与编译源码可分离：build_commit固定编译源码完整SHA，controller读取当前工作流提交的恢复脚本；checkpoint仍必须属于build_commit，不允许跨源码提交复用。唯一时间标记例外为third_party/depot_tools/.disable_auto_update：上游脚本写入当前时间，但语义仅为存在即禁用自动更新；要求文件存在且格式匹配，不恢复其mtime。其余源码和工具链仍严格核验。
+
+恢复核验会汇总全部缺失/变化文件的路径、大小、权限与哈希，不输出文件内容；差异报告随诊断产物上传。全部核验通过后才恢复时间戳，避免失败留下部分恢复状态。CIPD元数据不自动豁免，需根据完整差异判定是否发生工具包漂移。

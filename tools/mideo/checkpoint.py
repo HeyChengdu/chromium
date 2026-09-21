@@ -39,7 +39,8 @@ def restore(root, manifest, commit):
         data = json.load(stream)
     if data['commit'] != commit or data['root'] != str(root):
         raise RuntimeError('Checkpoint commit or absolute build path mismatch')
-    restored = 0
+    verified = []
+    differences = []
     # 不同输入必须使旧对象失效，不允许静默混用工具链或 hooks 产物。
     for name, (size, mode, mtime, sha) in data['files'].items():
         relative = Path(name)
@@ -47,7 +48,8 @@ def restore(root, manifest, commit):
             raise RuntimeError('Invalid checkpoint path')
         path = root / relative
         if not path.is_file() or path.is_symlink():
-            raise RuntimeError(f'Checkpoint input missing: {name}')
+            differences.append({'path': name, 'reason': 'missing'})
+            continue
         # depot_tools 禁止自动更新的标记只检查存在性，内容包含每次运行时间。
         # update_depot_tools_toggle.py 写入时间；不作为编译输入恢复时间戳。
         if name == 'third_party/depot_tools/.disable_auto_update':
@@ -55,11 +57,24 @@ def restore(root, manifest, commit):
                 raise RuntimeError('Unexpected depot_tools sentinel format')
             continue
         stat = path.stat()
-        if stat.st_size != size or stat.st_mode != mode or digest(path) != sha:
-            raise RuntimeError(f'Checkpoint input changed: {name}')
-        os.utime(path, ns=(stat.st_atime_ns, mtime))
-        restored += 1
-    print(f'Restored timestamps for {restored} content-verified inputs')
+        actual_sha = digest(path)
+        if stat.st_size != size or stat.st_mode != mode or actual_sha != sha:
+            differences.append({'path': name, 'reason': 'changed',
+                                'old_size': size, 'new_size': stat.st_size,
+                                'old_mode': mode, 'new_mode': stat.st_mode,
+                                'old_sha256': sha, 'new_sha256': actual_sha})
+            continue
+        verified.append((path, stat.st_atime_ns, mtime))
+    if differences:
+        report = manifest.with_name('restore-differences.json')
+        report.write_text(json.dumps(differences, indent=2))
+        for difference in differences:
+            print(json.dumps(difference), flush=True)
+        raise RuntimeError(f'Checkpoint input changed or missing: {len(differences)}; see {report}')
+    # 全部核验通过后才修改时间戳，失败不留下部分恢复状态。
+    for path, atime, mtime in verified:
+        os.utime(path, ns=(atime, mtime))
+    print(f'Restored timestamps for {len(verified)} content-verified inputs')
 
 
 if __name__ == '__main__':
