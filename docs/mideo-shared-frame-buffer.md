@@ -144,3 +144,5 @@ GN 使用 `--root-target=//headless:headless_shell --root-pattern=//headless:hea
 恢复控制脚本与编译源码可分离：build_commit固定编译源码完整SHA，controller读取当前工作流提交的恢复脚本；checkpoint仍必须属于build_commit，不允许跨源码提交复用。唯一时间标记例外为third_party/depot_tools/.disable_auto_update：上游脚本写入当前时间，但语义仅为存在即禁用自动更新；要求文件存在且格式匹配，不恢复其mtime。其余源码和工具链仍严格核验。
 
 恢复核验会汇总全部缺失/变化文件的路径、大小、权限与哈希，不输出文件内容；差异报告随诊断产物上传。全部核验通过后才恢复时间戳，避免失败留下部分恢复状态。CIPD元数据不自动豁免，需根据完整差异判定是否发生工具包漂移。
+
+CIPD私有pkgs数字槽发生重排时，恢复按相同实例后缀查找候选，并要求大小、权限及完整SHA256相同且唯一，才接受槽迁移；description.json同样要求完整内容匹配。不忽略二进制或包描述差异，不接受版本漂移。该规则用于验证编号变化假设，实际复用结果仍由CI确认。

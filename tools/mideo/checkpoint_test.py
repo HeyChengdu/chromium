@@ -43,6 +43,21 @@ class CheckpointTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'sentinel'):
                 checkpoint.restore(root, manifest, 'commit')
 
+    def test_cipd_slot_relocation_requires_identical_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'src'
+            packages = root / 'third_party/depot_tools/.cipd_bin/.cipd/pkgs'
+            old = packages / '5' / 'instance'
+            old.mkdir(parents=True)
+            (old / 'tool').write_text('binary fixture')
+            manifest = Path(directory) / 'inputs.gz'
+            checkpoint.snapshot(root, manifest, 'commit')
+            (packages / '5').rename(packages / '9')
+            checkpoint.restore(root, manifest, 'commit')
+            (packages / '9/instance/tool').write_text('changed binary')
+            with self.assertRaisesRegex(RuntimeError, 'missing'):
+                checkpoint.restore(root, manifest, 'commit')
+
     def test_excludes_outputs_and_rejects_missing_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'src'

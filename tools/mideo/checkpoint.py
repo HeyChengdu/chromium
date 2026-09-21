@@ -47,6 +47,23 @@ def restore(root, manifest, commit):
         if relative.is_absolute() or '..' in relative.parts:
             raise RuntimeError('Invalid checkpoint path')
         path = root / relative
+        # CIPD 安装槽编号不是包标识；必须在另一槽找到相同实例路径和完整内容。
+        parts = relative.parts
+        prefix = ('third_party', 'depot_tools', '.cipd_bin', '.cipd', 'pkgs')
+        if parts[:5] == prefix and len(parts) > 6 and parts[5].isdigit():
+            candidates = (root.joinpath(*prefix)).glob('*/' + '/'.join(parts[6:]))
+            matched = []
+            for candidate in candidates:
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                stat = candidate.stat()
+                if stat.st_size == size and stat.st_mode == mode and digest(candidate) == sha:
+                    matched.append(candidate)
+            if len(matched) == 1:
+                path = matched[0]
+            elif len(matched) > 1:
+                differences.append({'path': name, 'reason': 'ambiguous CIPD slot'})
+                continue
         if not path.is_file() or path.is_symlink():
             differences.append({'path': name, 'reason': 'missing'})
             continue
