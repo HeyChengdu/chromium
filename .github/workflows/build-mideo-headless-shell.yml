@@ -3,6 +3,10 @@ name: Build Mideo Headless Shell
 on:
   workflow_dispatch:
     inputs:
+      resume_run:
+        description: 相同提交的 checkpoint 运行 ID，首次留空
+        type: string
+        default: ''
       media_only:
         description: 仅获取固定 FFmpeg 产物，不编译 Chromium
         type: boolean
@@ -16,6 +20,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   linux-x64:
@@ -26,6 +31,7 @@ jobs:
       - name: Record resources and reclaim hosted runner disk
         run: |
           mkdir -p build-diagnostics
+          date +%s > build-diagnostics/job-start.txt
           { nproc; free -h; df -h; } | tee build-diagnostics/resources-before.txt
           # 仅清理一次性的 GitHub 托管虚拟机中与 Linux Chromium 无关的工具链。
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
@@ -72,6 +78,26 @@ jobs:
           sudo build/install-build-deps.sh --no-prompt --no-chromeos-fonts
           gclient runhooks
 
+      - name: Restore exact-source checkpoint
+        if: ${{ inputs.resume_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_RUN: ${{ inputs.resume_run }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, subprocess
+          run_id = os.environ['RESUME_RUN']
+          assert run_id.isdigit()
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}']))
+          assert run['head_sha'] == os.environ['GITHUB_SHA'] and run['status'] == 'completed'
+          subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium', '--name', 'mideo-checkpoint-' + os.environ['GITHUB_SHA'], '--dir', 'checkpoint'], check=True)
+          PYTHON
+          (cd checkpoint && sha256sum -c SHA256SUMS)
+          cd src
+          python3 tools/mideo/checkpoint.py restore ../checkpoint/inputs.json.gz
+          tar --zstd -xf ../checkpoint/out.tar.zst
+          rm ../checkpoint/out.tar.zst
+
       - name: Generate release build
         working-directory: src
         run: |
@@ -81,19 +107,54 @@ jobs:
         working-directory: src
         run: gn desc out/Mideo '//v8:v8_base_without_compiler(//build/toolchain/linux:clang_x64)' --format=json > ../build-diagnostics/v8-compile-flags.json
 
-      - name: Compile modified translation units first
-        working-directory: src
-        run: python3 tools/mideo/check-changed-units.py
-
-      - name: Build headless shell
+      - name: Record inputs for resumable build
         working-directory: src
         run: |
-          set -o pipefail
-          # 仅使用任务的 360 分钟上限，不再提前结束编译。
+          mkdir -p ../checkpoint
+          python3 tools/mideo/checkpoint.py snapshot ../checkpoint/inputs.json.gz
+
+      - name: Build headless shell with six workers
+        id: build
+        working-directory: src
+        run: |
+          # 270分钟编译预算，为保存中间产物留出余量；6小时仍为job硬上限。
           vmstat 30 > ../build-diagnostics/vmstat.log &
           monitor_pid=$!
           trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
-          autoninja -C out/Mideo -j 4 headless_shell 2>&1 | tee ../build-diagnostics/build.log
+          set +e
+          elapsed=$(( $(date +%s) - $(cat ../build-diagnostics/job-start.txt) ))
+          budget=$(( 300 * 60 - elapsed ))
+          if [ "$budget" -gt 16200 ]; then budget=16200; fi
+          if [ "$budget" -le 0 ]; then echo '准备阶段耗尽编译预算'; exit 1; fi
+          timeout --signal=INT --kill-after=60s "${budget}s" autoninja -C out/Mideo -j 6 headless_shell > >(tee ../build-diagnostics/build.log) 2>&1
+          result=$?
+          set -e
+          echo "exit_code=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" != 0 ] && [ "$result" != 124 ]; then exit "$result"; fi
+          if [ "$result" = 0 ]; then echo 'complete=true' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save resumable output
+        if: ${{ steps.build.outputs.exit_code == '124' }}
+        working-directory: src
+        run: |
+          tar --zstd -cf ../checkpoint/out.tar.zst out/Mideo
+          cd ../checkpoint
+          sha256sum inputs.json.gz out.tar.zst > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ steps.build.outputs.exit_code == '124' }}
+        with:
+          name: mideo-checkpoint-${{ github.sha }}
+          path: checkpoint/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Mark checkpoint continuation required
+        if: ${{ steps.build.outputs.exit_code == '124' }}
+        run: |
+          echo '编译窗口结束，checkpoint已保存；使用相同提交和本次run ID续跑。'
+          exit 1
 
       - name: Package runtime
         working-directory: src
