@@ -148,3 +148,5 @@ GN 使用 `--root-target=//headless:headless_shell --root-pattern=//headless:hea
 CIPD私有pkgs数字槽发生重排时，恢复按相同实例后缀查找候选，并要求大小、权限及完整SHA256相同且唯一，才接受槽迁移；description.json同样要求完整内容匹配。不忽略二进制或包描述差异，不接受版本漂移。该规则用于验证编号变化假设，实际复用结果仍由CI确认。
 
 匹配优先使用原路径且内容/权限完全相同的文件，仅原路径校验不通过时尝试CIPD槽迁移。这避免多个相同.lock文件产生虚假的迁移歧义，不降低内容校验。
+
+多轮续编传入resume_controller以核对checkpoint来源运行的完整工作流SHA；build_commit独立固定实际源码，恢复清单继续严格核验源码提交与内容。两者不再错误地要求相等，来源运行校验不取消。

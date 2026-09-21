@@ -7,6 +7,10 @@ on:
         description: 编译源码完整SHA，留空使用当前提交；恢复脚本可独立修复
         type: string
         default: ''
+      resume_controller:
+        description: checkpoint来源运行的工作流完整SHA，留空要求等于源码SHA
+        type: string
+        default: ''
       resume_run:
         description: 相同提交的 checkpoint 运行 ID，首次留空
         type: string
@@ -95,13 +99,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESUME_RUN: ${{ inputs.resume_run }}
+          RESUME_CONTROLLER: ${{ inputs.resume_controller || env.BUILD_COMMIT }}
         run: |
           python3 - <<'PYTHON'
           import json, os, subprocess
           run_id = os.environ['RESUME_RUN']
           assert run_id.isdigit()
           run = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}']))
-          assert run['head_sha'] == os.environ['BUILD_COMMIT'] and run['status'] == 'completed'
+          assert run['head_sha'] == os.environ['RESUME_CONTROLLER'] and run['status'] == 'completed'
+          # 下载后仍由清单独立核验 BUILD_COMMIT 及全部源码内容。
           subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium', '--name', 'mideo-checkpoint-' + os.environ['BUILD_COMMIT'], '--dir', 'checkpoint'], check=True)
           PYTHON
           (cd checkpoint && sha256sum -c SHA256SUMS)
