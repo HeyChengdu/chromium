@@ -2335,7 +2335,10 @@ void RenderWidgetHostImpl::CaptureMideoFrame(
     std::unique_ptr<viz::CopyOutputRequest> request) {
   // 与 CDP 新 Surface 截图保持同一同步顺序；失败不能读取旧 Surface。
   if (!view_ || !blink_widget_.is_bound()) return;
-  {
+  // 实验开关：验证新 Surface 的强制重绘能否单独提交最新内容。
+  // 未通过像素与连续帧门禁前，默认仍保留 CDP 的双重同步顺序。
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          "mideo-skip-force-redraw")) {
     TRACE_EVENT("viz", "Mideo.ForceRedrawCall");
     blink_widget_->ForceRedraw(base::DoNothing());
   }

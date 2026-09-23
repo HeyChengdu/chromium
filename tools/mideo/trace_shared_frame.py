@@ -43,13 +43,14 @@ class TraceBrowser(Browser):
         return b''.join(chunks)
 
 
-def run(binary: Path, root: Path):
+def run(binary: Path, root: Path, skip_force_redraw=False):
     barrier = threading.Barrier(4)
 
     def worker(index):
         directory = root / f'browser-{index}'
         directory.mkdir()
-        browser = TraceBrowser(binary, directory, 2560, 1440) if index == 0 else Browser(binary, directory, 2560, 1440)
+        browser_type = TraceBrowser if index == 0 else Browser
+        browser = browser_type(binary, directory, 2560, 1440, skip_force_redraw)
         try:
             if index == 0:
                 browser.send('Tracing.start', {
@@ -117,8 +118,9 @@ def run(binary: Path, root: Path):
 if __name__ == '__main__':
     binary = Path(sys.argv[1])
     output = Path(sys.argv[2])
+    skip_force_redraw = '--skip-force-redraw' in sys.argv[3:]
     with tempfile.TemporaryDirectory(dir='/dev/shm', prefix='mideo-trace-') as folder:
-        summary, compressed = run(binary, Path(folder))
+        summary, compressed = run(binary, Path(folder), skip_force_redraw)
     output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
     output.with_suffix('.json.gz').write_bytes(compressed)
     print(json.dumps(summary, ensure_ascii=False))

@@ -21,7 +21,7 @@ from PIL import Image
 import websocket
 
 class Browser:
-    def __init__(self, binary, directory, width, height):
+    def __init__(self, binary, directory, width, height, skip_force_redraw=False):
         self.width, self.height = width, height
         self.frame_bytes = width * height * 4
         self.path = directory / 'frames.bgra'
@@ -34,6 +34,7 @@ class Browser:
             '--force-color-profile=srgb', '--remote-debugging-port=0',
             '--remote-allow-origins=*', f'--window-size={width},{height}',
             f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3',
+            *(['--mideo-skip-force-redraw'] if skip_force_redraw else []),
             'about:blank'], stdout=subprocess.DEVNULL, stderr=self.log)
         self.socket = None
         self.request_id = 0
@@ -106,8 +107,8 @@ class Browser:
         self.mapping.close(); self.file.close(); self.log.close()
 
 
-def quality(binary, ffmpeg, directory):
-    browser = Browser(binary, directory, 640, 360)
+def quality(binary, ffmpeg, directory, skip_force_redraw=False):
+    browser = Browser(binary, directory, 640, 360, skip_force_redraw)
     frames = []
     metadata = []
     try:
@@ -154,6 +155,15 @@ def quality(binary, ffmpeg, directory):
             decoded.append(result.stdout)
         assert decoded[0] == decoded[1], '成片解码像素存在差异，拒绝发布'
         assert len(decoded[0]) == 36 * 640 * 360 * 3 // 2
+        # 不等待 rAF：连续同步修改 DOM 后，当前帧必须立即包含最新颜色。
+        browser.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mideo-freshness\" style=\"position:fixed;inset:0;z-index:2147483647\"></div>')")
+        for color in ('#123456', '#e85a20', '#2879c1', '#c43be0'):
+            browser.evaluate(f"document.querySelector('#mideo-freshness').style.backgroundColor='{color}'")
+            meta, actual = browser.shared()
+            expected_pixel = bytes.fromhex(color[5:7] + color[3:5] + color[1:3] + 'ff')
+            assert actual[:4] == expected_pixel, f'同步 DOM 修改后抓到了旧帧：{color}'
+            browser.release(meta)
+        browser.evaluate("document.querySelector('#mideo-freshness').remove()")
         # 透明背景验证非预乘 Alpha；PNG 仍作为同构建基线。
         browser.send('Emulation.setDefaultBackgroundColorOverride', dict(color=dict(r=0,g=0,b=0,a=0)))
         browser.evaluate("document.body.style.background='transparent'")
@@ -165,8 +175,8 @@ def quality(binary, ffmpeg, directory):
     finally: browser.close()
 
 
-def benchmark(binary, directory):
-    browser = Browser(binary, directory, 2560, 1440)
+def benchmark(binary, directory, skip_force_redraw=False):
+    browser = Browser(binary, directory, 2560, 1440, skip_force_redraw)
     samples = {name: [] for name in ['png', 'mideo-shm']}
     try:
         for n in range(25):
@@ -187,6 +197,7 @@ def main():
     parser.add_argument('headless_shell', type=Path)
     parser.add_argument('ffmpeg', type=Path)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--skip-force-redraw', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='mideo-gate-', dir='/dev/shm') as temp:
         root = Path(temp)
@@ -194,10 +205,10 @@ def main():
             value=root/name;value.mkdir();return value
         report = {}
         try:
-            report['quality'] = quality(args.headless_shell, args.ffmpeg, directory('quality'))
-            report['singleBrowser'] = benchmark(args.headless_shell, directory('single'))
+            report['quality'] = quality(args.headless_shell, args.ffmpeg, directory('quality'), args.skip_force_redraw)
+            report['singleBrowser'] = benchmark(args.headless_shell, directory('single'), args.skip_force_redraw)
             with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = [pool.submit(benchmark,args.headless_shell,directory(f'four-{n}')) for n in range(4)]
+                futures = [pool.submit(benchmark,args.headless_shell,directory(f'four-{n}'),args.skip_force_redraw) for n in range(4)]
                 report['fourBrowsers'] = [f.result() for f in futures]
             report['passed'] = True
         except BaseException as error:

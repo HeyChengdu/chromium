@@ -35,6 +35,9 @@ Viz 只收到授权文件句柄，不能按网页给定路径打开文件。每�
 
 `Page.captureScreenshot(format:"mideo-shm", fromSurface:true, captureBeyondViewport:false)`
 保留 ForceRedraw → RequestRepaintOnNewSurface → 等待新 Surface 的顺序。
+实验开关 `--mideo-skip-force-redraw` 仅供 CI 比较单次重绘：默认行为不变；
+该实验必须通过同步 DOM 修改后的最新帧、逐像素、Alpha、编码及计时门禁，
+再决定是否用于正式导出。
 SoftwareRenderer 直接 readPixels 到目标槽，无中间 SkBitmap，无 PNG 编码，无全帧 Mojo 回传。
 回传 `data` 仅为下面 JSON 的 Base64：
 
@@ -121,6 +124,12 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 完整 trace 和摘要随验证产物保存。trace 事件可能嵌套，阶段累计不可相加当作
 整帧墙钟；开启 tracing 也会扰动绝对耗时，因此需要与关闭 tracing 的同配置轮次对照。
 这只是测量探针，不改变抓帧、颜色、Alpha、分片或编码行为。
+
+2026-09-23 固定提交 `f7d88ca43f9b0551cfefeaa59bdd5b2b913d3ba9` 的四 Browser
+测量：请求到像素读取平均 35.145 ms，读取平均 8.442 ms，读取结束到结果平均
+1.205 ms；完整请求到结果平均 44.792 ms。trace 中同一捕获常出现两次
+`DirectRenderer::DrawFrame`，因此先用上述开关验证是否能安全去掉一次强制重绘。
+这些数据来自合成页面，不代表整课导出，也未达到 10 ms 目标。
 
 ### 单独修复媒体构建
 
