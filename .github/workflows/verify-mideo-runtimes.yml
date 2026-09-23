@@ -52,6 +52,10 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
           .venv/bin/python tools/mideo/shared_frame_buffer_smoke.py "$PWD/runtime/headless_shell" "$PWD/runtime/ffmpeg" --report runtime/validation.json
+      - name: Measure shared-frame stages with four browsers
+        timeout-minutes: 15
+        run: |
+          .venv/bin/python tools/mideo/trace_shared_frame.py "$PWD/runtime/headless_shell" runtime/capture-trace.json
       - name: Package verified runtime and source adapters
         run: |
           cp -a tools/mideo runtime/source-adapters
@@ -68,6 +72,8 @@ jobs:
           name: mideo-validation-${{ github.run_id }}
           path: |
             runtime/validation.json
+            runtime/capture-trace.json
+            runtime/capture-trace.json.gz
             runtime/verification/
           if-no-files-found: warn
           retention-days: 14

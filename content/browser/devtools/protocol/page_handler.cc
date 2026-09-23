@@ -2137,6 +2137,7 @@ void PageHandler::CaptureMideoFrame(
     callback->sendFailure(Response::ServerError("Mideo frame buffer is full"));
     return;
   }
+  TRACE_EVENT_INSTANT("viz", "Mideo.CaptureRequest", "sequence", *sequence);
   mideo_capture_pending_ = true;
   base::ScopedClosureRunner capturer;
   if (auto* wc = WebContents::FromRenderFrameHost(host_)) {
@@ -2151,6 +2152,8 @@ void PageHandler::CaptureMideoFrame(
              std::unique_ptr<CaptureScreenshotCallback> callback,
              std::unique_ptr<viz::CopyOutputResult> result) {
             if (!handler) return;
+            TRACE_EVENT_INSTANT("viz", "Mideo.CaptureResult", "sequence",
+                                sequence);
             handler->mideo_capture_pending_ = false;
             auto& buffer = *handler->mideo_frame_buffer_;
             if (!result->mideo_buffer_written() || result->IsEmpty() || result->size() != size) {

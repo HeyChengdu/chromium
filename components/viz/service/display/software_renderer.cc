@@ -639,6 +639,7 @@ void SoftwareRenderer::CopyDrawnRenderPass(
   DCHECK(color_space);
 
   if (request->has_mideo_buffer()) {
+    TRACE_EVENT("viz", "Mideo.CopyDrawnRenderPass");
     const gfx::Size size = request->mideo_size();
     if (request->is_scaled() || size != geometry.result_selection.size() ||
         !color_space->isSRGB()) {
@@ -649,6 +650,7 @@ void SoftwareRenderer::CopyDrawnRenderPass(
     const uint64_t stride = static_cast<uint64_t>(size.width()) * 4;
     const uint64_t bytes = stride * static_cast<uint64_t>(size.height());
     if (!mideo_mapping_ || mideo_mapping_id_ != request->mideo_id()) {
+      TRACE_EVENT("viz", "Mideo.MapSharedBuffer");
       auto mapping = std::make_unique<base::MemoryMappedFile>();
       if (!mapping->Initialize(request->TakeMideoFile(),
                                base::MemoryMappedFile::READ_WRITE)) {
@@ -666,9 +668,14 @@ void SoftwareRenderer::CopyDrawnRenderPass(
     const SkImageInfo info = SkImageInfo::Make(
         size.width(), size.height(), kBGRA_8888_SkColorType,
         kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
-    if (!current_canvas_->readPixels(info, destination.data(), stride,
-                                     geometry.readback_offset.x(),
-                                     geometry.readback_offset.y())) {
+    bool copied = false;
+    {
+      TRACE_EVENT("viz", "Mideo.ReadPixels");
+      copied = current_canvas_->readPixels(info, destination.data(), stride,
+                                           geometry.readback_offset.x(),
+                                           geometry.readback_offset.y());
+    }
+    if (!copied) {
       return;
     }
     auto result = std::make_unique<CopyOutputResult>(

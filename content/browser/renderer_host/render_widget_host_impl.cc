@@ -2335,15 +2335,24 @@ void RenderWidgetHostImpl::CaptureMideoFrame(
     std::unique_ptr<viz::CopyOutputRequest> request) {
   // 与 CDP 新 Surface 截图保持同一同步顺序；失败不能读取旧 Surface。
   if (!view_ || !blink_widget_.is_bound()) return;
-  blink_widget_->ForceRedraw(base::DoNothing());
+  {
+    TRACE_EVENT("viz", "Mideo.ForceRedrawCall");
+    blink_widget_->ForceRedraw(base::DoNothing());
+  }
   const auto previous_surface = view_->GetCurrentSurfaceId();
   // 有待确认的 VisualProperties 时发送可能延后，但 Surface 身份已经推进。
-  RequestRepaintOnNewSurface();
+  {
+    TRACE_EVENT("viz", "Mideo.RequestRepaintCall");
+    RequestRepaintOnNewSurface();
+  }
   const auto surface = view_->GetCurrentSurfaceId();
   if (!surface.is_valid() || surface == previous_surface) return;
   request->set_result_task_runner(base::SingleThreadTaskRunner::GetCurrentDefault());
-  GetHostFrameSinkManager()->RequestCopyOfOutput(
-      surface, std::move(request), false, base::Seconds(15));
+  {
+    TRACE_EVENT("viz", "Mideo.RequestCopyCall");
+    GetHostFrameSinkManager()->RequestCopyOfOutput(
+        surface, std::move(request), false, base::Seconds(15));
+  }
 }
 
 void RenderWidgetHostImpl::GetSnapshotFromBrowser(
