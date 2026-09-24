@@ -82,10 +82,17 @@ def run(binary, output):
                 return report
             if report['privilege'] == 'sudo':
                 subprocess.run(['sudo', '-n', 'chmod', 'a+r', str(output / 'perf.data')], check=True)
+            with (output / 'perf-comm-report.txt').open('w') as log:
+                comm = subprocess.run(
+                    [*selected, 'report', '--stdio', '--no-children', '-g', 'none',
+                     '--sort', 'comm', '--percent-limit', '1',
+                     '-i', str(output / 'perf.data')],
+                    text=True, stdout=log, stderr=subprocess.STDOUT, timeout=60)
+            report['commReportStatus'] = comm.returncode
             with (output / 'perf-dso-report.txt').open('w') as log:
                 dso = subprocess.run(
                     [*selected, 'report', '--stdio', '--no-children', '-g', 'none',
-                     '--comms=headless_shell', '--sort', 'dso', '--percent-limit', '1',
+                     '--sort', 'comm,dso', '--percent-limit', '1',
                      '-i', str(output / 'perf.data')],
                     text=True, stdout=log, stderr=subprocess.STDOUT, timeout=60)
             report['dsoReportStatus'] = dso.returncode
@@ -93,7 +100,7 @@ def run(binary, output):
                 try:
                     reported = subprocess.run(
                         [*selected, 'report', '--stdio', '--no-children', '-g', 'none',
-                         '--comms=headless_shell', '--sort', 'comm,dso,symbol',
+                         '--sort', 'comm,dso,symbol',
                          '--percent-limit', '0.5', '-i', str(output / 'perf.data')],
                         text=True, stdout=log, stderr=subprocess.STDOUT, timeout=120)
                 except subprocess.TimeoutExpired:
