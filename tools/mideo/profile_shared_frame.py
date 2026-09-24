@@ -74,7 +74,7 @@ def run(binary, output):
                         stop.set()
                     report['framesPerBrowser'] = [future.result(timeout=30) for future in futures]
             record_status = recorded.returncode
-            if record_status not in (0, 130, -signal.SIGINT):
+            if record_status != 0:
                 report['reason'] = f'perf record failed (exit {record_status})'
                 return report
             if report['privilege'] == 'sudo':
