@@ -48,6 +48,9 @@ def run(binary, output):
         report['reason'] = 'perf stat denied for both runner and sudo'
         return report
     report['privilege'] = 'sudo' if selected[0] == 'sudo' else 'runner'
+    with (output / 'binary-sections.txt').open('w') as log:
+        subprocess.run(['readelf', '-S', str(binary)], text=True, stdout=log,
+                       stderr=subprocess.STDOUT, check=True, timeout=30)
 
     with tempfile.TemporaryDirectory(dir='/dev/shm', prefix='mideo-perf-') as folder:
         root = Path(folder)
@@ -79,6 +82,13 @@ def run(binary, output):
                 return report
             if report['privilege'] == 'sudo':
                 subprocess.run(['sudo', '-n', 'chmod', 'a+r', str(output / 'perf.data')], check=True)
+            with (output / 'perf-dso-report.txt').open('w') as log:
+                dso = subprocess.run(
+                    [*selected, 'report', '--stdio', '--no-children', '-g', 'none',
+                     '--comms=headless_shell', '--sort', 'dso', '--percent-limit', '1',
+                     '-i', str(output / 'perf.data')],
+                    text=True, stdout=log, stderr=subprocess.STDOUT, timeout=60)
+            report['dsoReportStatus'] = dso.returncode
             with (output / 'perf-report.txt').open('w') as log:
                 try:
                     reported = subprocess.run(
