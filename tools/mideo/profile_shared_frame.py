@@ -49,12 +49,21 @@ def run(binary, output):
         report['reason'] = 'perf executable not installed'
         return report
     report['perfVersion'] = subprocess.run([perf, '--version'], text=True, capture_output=True).stdout.strip()
-    probe = subprocess.run([perf, 'stat', '-e', 'cpu-clock', '--', 'sleep', '0.1'],
-                           text=True, capture_output=True)
-    (output / 'perf-probe.txt').write_text(probe.stdout + probe.stderr)
-    if probe.returncode:
-        report['reason'] = f'perf stat denied or unsupported (exit {probe.returncode})'
+    commands = [[perf], ['sudo', '-n', perf]]
+    selected = None
+    probe_logs = []
+    for command in commands:
+        probe = subprocess.run([*command, 'stat', '-e', 'cpu-clock', '--', 'sleep', '0.1'],
+                               text=True, capture_output=True)
+        probe_logs.append(f"$ {' '.join(command)} stat\n{probe.stdout}{probe.stderr}")
+        if probe.returncode == 0:
+            selected = command
+            break
+    (output / 'perf-probe.txt').write_text('\n'.join(probe_logs))
+    if selected is None:
+        report['reason'] = 'perf stat denied for both runner and sudo'
         return report
+    report['privilege'] = 'sudo' if selected[0] == 'sudo' else 'runner'
 
     with tempfile.TemporaryDirectory(dir='/dev/shm', prefix='mideo-perf-') as folder:
         root = Path(folder)
@@ -67,7 +76,7 @@ def run(binary, output):
             pids = sorted(set().union(*(descendants(browser.process.pid) for browser in browsers)))
             report['processCount'] = len(pids)
             stop = threading.Event()
-            command = [perf, 'record', '-F', '99', '-g', '--call-graph', 'dwarf,4096',
+            command = [*selected, 'record', '-F', '99', '-g', '--call-graph', 'dwarf,4096',
                        '-p', ','.join(map(str, pids)), '-o', str(output / 'perf.data'),
                        '--', 'sleep', '15']
             with (output / 'perf-record.txt').open('w') as log:
@@ -82,8 +91,10 @@ def run(binary, output):
             if recorded.returncode:
                 report['reason'] = f'perf record failed (exit {recorded.returncode})'
                 return report
+            if report['privilege'] == 'sudo':
+                subprocess.run(['sudo', '-n', 'chmod', 'a+r', str(output / 'perf.data')], check=True)
             with (output / 'perf-report.txt').open('w') as log:
-                reported = subprocess.run([perf, 'report', '--stdio', '--sort', 'comm,dso,symbol',
+                reported = subprocess.run([*selected, 'report', '--stdio', '--sort', 'comm,dso,symbol',
                                            '--percent-limit', '0.5', '-i', str(output / 'perf.data')],
                                           text=True, stdout=log, stderr=subprocess.STDOUT, timeout=60)
             report['status'] = 'sampled' if reported.returncode == 0 else 'report_failed'
