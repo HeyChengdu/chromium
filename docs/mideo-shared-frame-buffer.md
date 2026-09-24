@@ -131,6 +131,13 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 `DirectRenderer::DrawFrame`，因此先用上述开关验证是否能安全去掉一次强制重绘。
 这些数据来自合成页面，不代表整课导出，也未达到 10 ms 目标。
 
+函数级 CPU 分析复用已编译候选产物，可通过独立 `verify-mideo-runtimes.yml`
+的 `profile_cpu` 输入启动。作业先实测 Runner 的 `perf` 许可，再在四浏览器负载下
+尝试采集 Chromium 进程树的调用栈，并上传 `perf-probe.txt`、`perf-record.txt`、
+`perf-report.txt` 与原始 `perf.data`。若 Runner 禁止采样，报告明确的内核权限结果。
+当前发布构建使用 `symbol_level=0` 且未开启帧指针，采样即使成功也可能只有地址而
+缺少足够的函数名；是否单独构建带符号分析版本由实际样本决定，不把分析构建当成发布产物。
+
 ### 单独修复媒体构建
 
 工作流手动触发参数 `media_only=true` 只构建 FFmpeg，使用独立并发组，不中断正在运行的 Chromium 构建。此模式仅生成候选媒体产物，不执行完整像素与编码验收，也不生成已验证运行时。FFmpeg 自定义输入声明必须位于生成的 demuxer 列表之前。
