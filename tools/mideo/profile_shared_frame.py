@@ -5,8 +5,10 @@ import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -78,19 +80,34 @@ def run(binary, output):
             report['processCount'] = len(pids)
             stop = threading.Event()
             command = [*selected, 'record', '-F', '49', '-g', '--call-graph', 'dwarf,2048',
-                       '-p', ','.join(map(str, pids)), '-o', str(output / 'perf.data'),
-                       '--', 'sleep', '8']
+                       '-p', ','.join(map(str, pids)), '-o', str(output / 'perf.data')]
             with (output / 'perf-record.txt').open('w') as log:
                 with ThreadPoolExecutor(max_workers=4) as pool:
                     futures = [pool.submit(capture, browser, stop) for browser in browsers]
+                    recorder = None
                     try:
-                        recorded = subprocess.run(command, text=True, stdout=log,
-                                                  stderr=subprocess.STDOUT, timeout=90)
+                        recorder = subprocess.Popen(command, text=True, stdout=log,
+                                                    stderr=subprocess.STDOUT,
+                                                    start_new_session=True)
+                        time.sleep(8)
+                        if report['privilege'] == 'sudo':
+                            subprocess.run(['sudo', '-n', 'kill', '-INT', '--',
+                                            f'-{recorder.pid}'], check=True, timeout=10)
+                        else:
+                            os.killpg(recorder.pid, signal.SIGINT)
+                        record_status = recorder.wait(timeout=30)
                     finally:
                         stop.set()
+                        if recorder is not None and recorder.poll() is None:
+                            if report['privilege'] == 'sudo':
+                                subprocess.run(['sudo', '-n', 'kill', '-KILL', '--',
+                                                f'-{recorder.pid}'], check=False, timeout=10)
+                            else:
+                                os.killpg(recorder.pid, signal.SIGKILL)
+                            recorder.wait(timeout=10)
                     report['framesPerBrowser'] = [future.result(timeout=30) for future in futures]
-            if recorded.returncode:
-                report['reason'] = f'perf record failed (exit {recorded.returncode})'
+            if record_status not in (0, 130, -signal.SIGINT):
+                report['reason'] = f'perf record failed (exit {record_status})'
                 return report
             if report['privilege'] == 'sudo':
                 subprocess.run(['sudo', '-n', 'chmod', 'a+r', str(output / 'perf.data')], check=True)
