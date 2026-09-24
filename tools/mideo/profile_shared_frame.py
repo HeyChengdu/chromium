@@ -61,7 +61,7 @@ def run(binary, output):
             stop = threading.Event()
             # 附着进程树时 perf 不随 sleep 退出；系统范围采样由命令生命周期终止，
             # 后续报告按 Chromium 进程名过滤，同时保留其他进程开销供比较。
-            command = [*selected, 'record', '-a', '-F', '49', '-g',
+            command = [*selected, 'record', '-a', '-B', '-N', '-F', '49', '-g',
                        '--call-graph', 'dwarf,2048', '-o', str(output / 'perf.data'),
                        '--', 'sleep', '8']
             with (output / 'perf-record.txt').open('w') as log:
