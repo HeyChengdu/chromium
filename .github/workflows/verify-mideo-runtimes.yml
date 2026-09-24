@@ -10,10 +10,6 @@ on:
         description: Chromium 完整提交 SHA
         required: true
         type: string
-      profile_cpu:
-        description: 在四浏览器负载下尝试 Linux perf CPU 采样
-        type: boolean
-        default: false
 permissions:
   contents: read
   actions: read
@@ -60,12 +56,6 @@ jobs:
         timeout-minutes: 15
         run: |
           .venv/bin/python tools/mideo/trace_shared_frame.py "$PWD/runtime/headless_shell" runtime/capture-trace.json
-      - name: Sample Chromium CPU stacks with Linux perf
-        if: ${{ inputs.profile_cpu == true }}
-        timeout-minutes: 10
-        run: |
-          if ! command -v perf >/dev/null; then sudo apt-get install -y linux-perf || true; fi
-          .venv/bin/python tools/mideo/profile_shared_frame.py "$PWD/runtime/headless_shell" runtime/profile
       - name: Package verified runtime and source adapters
         run: |
           cp -a tools/mideo runtime/source-adapters
@@ -85,6 +75,5 @@ jobs:
             runtime/capture-trace.json
             runtime/capture-trace.json.gz
             runtime/verification/
-            runtime/profile/
           if-no-files-found: warn
           retention-days: 14

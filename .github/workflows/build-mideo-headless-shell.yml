@@ -19,6 +19,18 @@ on:
         description: 仅获取固定 FFmpeg 产物，不编译 Chromium
         type: boolean
         default: false
+      profile_only:
+        description: 复用已完成 Chromium 产物做 Linux perf 采样
+        type: boolean
+        default: false
+      profile_run:
+        description: 已完成 Chromium 候选产物所在运行 ID
+        type: string
+        default: ''
+      profile_commit:
+        description: Chromium 候选产物的完整提交 SHA
+        type: string
+        default: ''
   push:
     branches: [mideo-raw-frame-capture]
 
@@ -32,7 +44,7 @@ permissions:
 
 jobs:
   linux-x64:
-    if: ${{ inputs.media_only != true }}
+    if: ${{ inputs.media_only != true && inputs.profile_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -209,6 +221,7 @@ jobs:
           retention-days: 14
 
   media:
+    if: ${{ inputs.profile_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -281,5 +294,49 @@ jobs:
             runtime/capture-trace.json.gz
             runtime/verification/
             runtime/candidate/
+          if-no-files-found: warn
+          retention-days: 14
+
+  profile:
+    if: ${{ inputs.profile_only == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - name: Fetch exact completed Chromium candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE_RUN: ${{ inputs.profile_run }}
+          PROFILE_COMMIT: ${{ inputs.profile_commit }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re, subprocess
+          run_id, commit = os.environ['PROFILE_RUN'], os.environ['PROFILE_COMMIT']
+          assert run_id.isdigit() and re.fullmatch('[0-9a-f]{40}', commit)
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}']))
+          assert run['head_sha'] == commit and run['status'] == 'completed' and run['conclusion'] == 'success'
+          subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium',
+                          '--name', f'candidate-headless-shell-{commit}', '--dir', 'candidate'], check=True)
+          PYTHON
+          mkdir -p runtime
+          tar -xzf candidate/mideo-headless-shell-linux-x64.tar.gz -C runtime
+          test "$(cat runtime/chromium-commit.txt)" = "$PROFILE_COMMIT"
+          chmod +x runtime/headless_shell
+      - name: Sample four-browser CPU stacks
+        timeout-minutes: 15
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 fonts-noto-cjk
+          if ! command -v perf >/dev/null; then sudo apt-get install -y linux-perf || true; fi
+          python3 -m venv .venv
+          .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
+          .venv/bin/python tools/mideo/profile_shared_frame.py "$PWD/runtime/headless_shell" runtime/profile
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-cpu-profile-${{ github.run_id }}
+          path: runtime/profile/
           if-no-files-found: warn
           retention-days: 14
