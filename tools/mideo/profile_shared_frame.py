@@ -80,9 +80,16 @@ def run(binary, output):
             if report['privilege'] == 'sudo':
                 subprocess.run(['sudo', '-n', 'chmod', 'a+r', str(output / 'perf.data')], check=True)
             with (output / 'perf-report.txt').open('w') as log:
-                reported = subprocess.run([*selected, 'report', '--stdio', '--sort', 'comm,dso,symbol',
-                                           '--percent-limit', '0.5', '-i', str(output / 'perf.data')],
-                                          text=True, stdout=log, stderr=subprocess.STDOUT, timeout=60)
+                try:
+                    reported = subprocess.run(
+                        [*selected, 'report', '--stdio', '--no-children', '-g', 'none',
+                         '--comms=headless_shell', '--sort', 'comm,dso,symbol',
+                         '--percent-limit', '0.5', '-i', str(output / 'perf.data')],
+                        text=True, stdout=log, stderr=subprocess.STDOUT, timeout=120)
+                except subprocess.TimeoutExpired:
+                    report['reason'] = 'perf report timed out after 120 seconds'
+                    report['perfDataBytes'] = (output / 'perf.data').stat().st_size
+                    return report
             report['status'] = 'sampled' if reported.returncode == 0 else 'report_failed'
             report['perfDataBytes'] = (output / 'perf.data').stat().st_size
             return report
