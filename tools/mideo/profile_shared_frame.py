@@ -5,32 +5,14 @@ import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
-import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
 import time
 
 from shared_frame_buffer_smoke import Browser
-
-
-def descendants(pid):
-    found = {pid}
-    pending = [pid]
-    while pending:
-        current = pending.pop()
-        path = Path(f'/proc/{current}/task/{current}/children')
-        if not path.exists():
-            continue
-        for child in path.read_text().split():
-            number = int(child)
-            if number not in found:
-                found.add(number)
-                pending.append(number)
-    return found
 
 
 def capture(browser, stop):
@@ -75,41 +57,23 @@ def run(binary, output):
                 directory = root / f'browser-{index}'
                 directory.mkdir()
                 browsers.append(Browser(binary, directory, 2560, 1440))
-            # 四浏览器制造真实竞争，仅采样第一棵进程树，控制 perf 写盘开销。
-            pids = sorted(descendants(browsers[0].process.pid))
-            report['processCount'] = len(pids)
+            report['sampleScope'] = 'system-wide under four-browser load'
             stop = threading.Event()
-            control = output / 'perf-control.fifo'
-            os.mkfifo(control, 0o666)
-            control_fd = os.open(control, os.O_RDWR | os.O_NONBLOCK)
-            command = [*selected, 'record', '-F', '49', '-g', '--call-graph', 'dwarf,2048',
-                       '-p', ','.join(map(str, pids)), '-o', str(output / 'perf.data'),
-                       f'--control=fifo:{control.resolve()}']
-            try:
-                with (output / 'perf-record.txt').open('w') as log:
-                    with ThreadPoolExecutor(max_workers=4) as pool:
-                        futures = [pool.submit(capture, browser, stop) for browser in browsers]
-                        recorder = None
-                        try:
-                            recorder = subprocess.Popen(command, text=True, stdout=log,
-                                                        stderr=subprocess.STDOUT,
-                                                        start_new_session=True)
-                            time.sleep(8)
-                            os.write(control_fd, b'stop\n')
-                            record_status = recorder.wait(timeout=30)
-                        finally:
-                            stop.set()
-                            if recorder is not None and recorder.poll() is None:
-                                if report['privilege'] == 'sudo':
-                                    subprocess.run(['sudo', '-n', 'kill', '-KILL', '--',
-                                                    f'-{recorder.pid}'], check=False, timeout=10)
-                                else:
-                                    os.killpg(recorder.pid, signal.SIGKILL)
-                                recorder.wait(timeout=10)
-                        report['framesPerBrowser'] = [future.result(timeout=30) for future in futures]
-            finally:
-                os.close(control_fd)
-                control.unlink()
+            # 附着进程树时 perf 不随 sleep 退出；系统范围采样由命令生命周期终止，
+            # 后续报告按 Chromium 进程名过滤，同时保留其他进程开销供比较。
+            command = [*selected, 'record', '-a', '-F', '49', '-g',
+                       '--call-graph', 'dwarf,2048', '-o', str(output / 'perf.data'),
+                       '--', 'sleep', '8']
+            with (output / 'perf-record.txt').open('w') as log:
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = [pool.submit(capture, browser, stop) for browser in browsers]
+                    try:
+                        recorded = subprocess.run(command, text=True, stdout=log,
+                                                  stderr=subprocess.STDOUT, timeout=45)
+                    finally:
+                        stop.set()
+                    report['framesPerBrowser'] = [future.result(timeout=30) for future in futures]
+            record_status = recorded.returncode
             if record_status not in (0, 130, -signal.SIGINT):
                 report['reason'] = f'perf record failed (exit {record_status})'
                 return report
