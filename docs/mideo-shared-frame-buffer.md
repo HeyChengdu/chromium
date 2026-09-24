@@ -131,12 +131,28 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 `DirectRenderer::DrawFrame`，因此先用上述开关验证是否能安全去掉一次强制重绘。
 这些数据来自合成页面，不代表整课导出，也未达到 10 ms 目标。
 
+提交 `7569b40281e9e2312b8c5463e6087e09363abc35` 的同二进制 A/B 门禁
+通过逐像素、Alpha、同步 DOM 修改后立即抓帧及编码对比，但跳过强制重绘并未加速：
+原路径请求到结果平均 37.027 ms，实验路径 38.201 ms。实验开关继续默认关闭，
+不能凭两次 `DrawFrame` 的数量推断移除调用会减少实际绘制成本。
+
 函数级 CPU 分析复用已编译候选产物，可通过 `build-mideo-headless-shell.yml`
 的 `profile_only=true`、`profile_run`、`profile_commit` 输入启动，不重新编译。作业先实测 Runner 的 `perf` 许可，再在四浏览器负载下
-尝试采集 Chromium 进程树的调用栈，并上传 `perf-probe.txt`、`perf-record.txt`、
-`perf-report.txt` 与原始 `perf.data`。若 Runner 禁止采样，报告明确的内核权限结果。
-当前发布构建使用 `symbol_level=0` 且未开启帧指针，采样即使成功也可能只有地址而
-缺少足够的函数名；是否单独构建带符号分析版本由实际样本决定，不把分析构建当成发布产物。
+以 `sudo perf record` 做 8 秒系统范围 CPU 采样，并上传线程、共享对象及函数热点报告、
+`perf-probe.txt`、`perf-record.txt` 与原始 `perf.data`。Runner 的
+`perf_event_paranoid=4` 禁止普通用户采样，`sudo perf` 实测可用；录制关闭
+build-id 后处理以避免结束阶段长时间扫描，本次报告只在同一作业、同一未变动二进制上解析。
+发布构建虽设置 `symbol_level=0`，本次二进制的 `readelf` 仍确认存在 `.symtab` 和
+`.debug_line`，`perf` 能解析部分函数；未开启帧指针，调用栈完整性仍需谨慎核对。
+
+2026-09-24 运行 `35951875632` 的四浏览器合成页采样零丢样、每个浏览器约
+190–204 帧。`VizCompositorTh` 占全机 CPU 样本的 60.33%，`Compositor` 占
+5.61%；Viz 的自耗热点包括 Skia 位图缩放过滤、`load_8888`／`store_8888`、
+去预乘 Alpha 与行混合。采样说明**此合成场景**的主要 CPU 压力在软件合成，
+而非共享内存元数据或 Node 搬运；测试页把 640×360 Canvas 用 CSS 拉伸到
+1440p 画面的一部分，所以不能直接认定真实 Lesson 具有相同的缩放热点。
+下一步需用真实 Lesson 画面验证热点及像素等价，再决定优化点，不能通过降低过滤质量
+或改变 Alpha 语义来追求 10 ms。
 
 ### 单独修复媒体构建
 
