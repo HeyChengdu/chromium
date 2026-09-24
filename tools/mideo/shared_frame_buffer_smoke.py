@@ -21,7 +21,7 @@ from PIL import Image
 import websocket
 
 class Browser:
-    def __init__(self, binary, directory, width, height, skip_force_redraw=False):
+    def __init__(self, binary, directory, width, height, skip_force_redraw=False, copy_after_present=False):
         self.width, self.height = width, height
         self.frame_bytes = width * height * 4
         self.path = directory / 'frames.bgra'
@@ -35,6 +35,7 @@ class Browser:
             '--remote-allow-origins=*', f'--window-size={width},{height}',
             f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3',
             *(['--mideo-skip-force-redraw'] if skip_force_redraw else []),
+            *(['--mideo-copy-after-present'] if copy_after_present else []),
             'about:blank'], stdout=subprocess.DEVNULL, stderr=self.log)
         self.socket = None
         self.request_id = 0
@@ -107,8 +108,8 @@ class Browser:
         self.mapping.close(); self.file.close(); self.log.close()
 
 
-def quality(binary, ffmpeg, directory, skip_force_redraw=False):
-    browser = Browser(binary, directory, 640, 360, skip_force_redraw)
+def quality(binary, ffmpeg, directory, skip_force_redraw=False, copy_after_present=False):
+    browser = Browser(binary, directory, 640, 360, skip_force_redraw, copy_after_present)
     frames = []
     metadata = []
     try:
@@ -175,8 +176,8 @@ def quality(binary, ffmpeg, directory, skip_force_redraw=False):
     finally: browser.close()
 
 
-def benchmark(binary, directory, skip_force_redraw=False):
-    browser = Browser(binary, directory, 2560, 1440, skip_force_redraw)
+def benchmark(binary, directory, skip_force_redraw=False, copy_after_present=False):
+    browser = Browser(binary, directory, 2560, 1440, skip_force_redraw, copy_after_present)
     samples = {name: [] for name in ['png', 'mideo-shm']}
     try:
         for n in range(25):
@@ -198,17 +199,20 @@ def main():
     parser.add_argument('ffmpeg', type=Path)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--skip-force-redraw', action='store_true')
+    parser.add_argument('--copy-after-present', action='store_true')
     args = parser.parse_args()
+    if args.skip_force_redraw and args.copy_after_present:
+        parser.error('两个截图实验不能同时启用')
     with tempfile.TemporaryDirectory(prefix='mideo-gate-', dir='/dev/shm') as temp:
         root = Path(temp)
         def directory(name):
             value=root/name;value.mkdir();return value
         report = {}
         try:
-            report['quality'] = quality(args.headless_shell, args.ffmpeg, directory('quality'), args.skip_force_redraw)
-            report['singleBrowser'] = benchmark(args.headless_shell, directory('single'), args.skip_force_redraw)
+            report['quality'] = quality(args.headless_shell, args.ffmpeg, directory('quality'), args.skip_force_redraw, args.copy_after_present)
+            report['singleBrowser'] = benchmark(args.headless_shell, directory('single'), args.skip_force_redraw, args.copy_after_present)
             with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = [pool.submit(benchmark,args.headless_shell,directory(f'four-{n}'),args.skip_force_redraw) for n in range(4)]
+                futures = [pool.submit(benchmark,args.headless_shell,directory(f'four-{n}'),args.skip_force_redraw,args.copy_after_present) for n in range(4)]
                 report['fourBrowsers'] = [f.result() for f in futures]
             report['passed'] = True
         except BaseException as error:

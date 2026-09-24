@@ -268,12 +268,12 @@ jobs:
         timeout-minutes: 15
         run: |
           .venv/bin/python tools/mideo/trace_shared_frame.py "$PWD/runtime/headless_shell" runtime/capture-trace.json
-      - name: Compare single-redraw experiment with pixel and timing gates
+      - name: Compare capture-after-present experiment with pixel and timing gates
         timeout-minutes: 30
         run: |
           mkdir -p runtime/candidate
-          .venv/bin/python tools/mideo/shared_frame_buffer_smoke.py "$PWD/runtime/headless_shell" "$PWD/runtime/ffmpeg" --skip-force-redraw --report runtime/candidate/validation.json
-          .venv/bin/python tools/mideo/trace_shared_frame.py "$PWD/runtime/headless_shell" runtime/candidate/capture-trace.json --skip-force-redraw
+          .venv/bin/python tools/mideo/shared_frame_buffer_smoke.py "$PWD/runtime/headless_shell" "$PWD/runtime/ffmpeg" --copy-after-present --report runtime/candidate/validation.json
+          .venv/bin/python tools/mideo/trace_shared_frame.py "$PWD/runtime/headless_shell" runtime/candidate/capture-trace.json --copy-after-present
       - name: Package verified runtime and source adapters
         run: |
           cp -a tools/mideo runtime/source-adapters

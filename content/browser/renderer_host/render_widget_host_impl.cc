@@ -2335,6 +2335,25 @@ void RenderWidgetHostImpl::CaptureMideoFrame(
     std::unique_ptr<viz::CopyOutputRequest> request) {
   // 与 CDP 新 Surface 截图保持同一同步顺序；失败不能读取旧 Surface。
   if (!view_ || !blink_widget_.is_bound()) return;
+  // 实验路径仅在强制重绘的帧已呈现后读取当前 Surface。默认仍使用
+  // CDP 新 Surface 路径，像素与连续帧门禁通过前不得用于正式导出。
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          "mideo-copy-after-present")) {
+    blink_widget_->ForceRedraw(base::BindOnce(
+        [](base::WeakPtr<RenderWidgetHostImpl> host,
+           std::unique_ptr<viz::CopyOutputRequest> request) {
+          if (!host || !host->view_) return;
+          const auto surface = host->view_->GetCurrentSurfaceId();
+          if (!surface.is_valid()) return;
+          request->set_result_task_runner(
+              base::SingleThreadTaskRunner::GetCurrentDefault());
+          TRACE_EVENT("viz", "Mideo.RequestCopyAfterPresent");
+          host->GetHostFrameSinkManager()->RequestCopyOfOutput(
+              surface, std::move(request), false, base::Seconds(15));
+        },
+        weak_factory_.GetWeakPtr(), std::move(request)));
+    return;
+  }
   // 实验开关：验证新 Surface 的强制重绘能否单独提交最新内容。
   // 未通过像素与连续帧门禁前，默认仍保留 CDP 的双重同步顺序。
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
