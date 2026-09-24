@@ -333,6 +333,10 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
           .venv/bin/python tools/mideo/profile_shared_frame.py "$PWD/runtime/headless_shell" runtime/profile
+      - name: Make perf artifact readable
+        if: always()
+        run: |
+          if [ -d runtime/profile ]; then sudo chmod -R a+rX runtime/profile; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

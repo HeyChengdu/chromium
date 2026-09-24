@@ -73,18 +73,19 @@ def run(binary, output):
                 directory = root / f'browser-{index}'
                 directory.mkdir()
                 browsers.append(Browser(binary, directory, 2560, 1440))
-            pids = sorted(set().union(*(descendants(browser.process.pid) for browser in browsers)))
+            # 四浏览器制造真实竞争，仅采样第一棵进程树，控制 perf 写盘开销。
+            pids = sorted(descendants(browsers[0].process.pid))
             report['processCount'] = len(pids)
             stop = threading.Event()
-            command = [*selected, 'record', '-F', '99', '-g', '--call-graph', 'dwarf,4096',
+            command = [*selected, 'record', '-F', '49', '-g', '--call-graph', 'dwarf,2048',
                        '-p', ','.join(map(str, pids)), '-o', str(output / 'perf.data'),
-                       '--', 'sleep', '15']
+                       '--', 'sleep', '8']
             with (output / 'perf-record.txt').open('w') as log:
                 with ThreadPoolExecutor(max_workers=4) as pool:
                     futures = [pool.submit(capture, browser, stop) for browser in browsers]
                     try:
                         recorded = subprocess.run(command, text=True, stdout=log,
-                                                  stderr=subprocess.STDOUT, timeout=30)
+                                                  stderr=subprocess.STDOUT, timeout=90)
                     finally:
                         stop.set()
                     report['framesPerBrowser'] = [future.result(timeout=30) for future in futures]
