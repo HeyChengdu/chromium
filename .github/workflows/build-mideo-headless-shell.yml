@@ -87,6 +87,11 @@ jobs:
       - name: Synchronize Chromium dependencies
         timeout-minutes: 100
         run: |
+          set -o pipefail
+          # Git 默认会无限等待无数据的 HTTP 连接。托管 runner 偶发遇到
+          # googlesource clone 停滞时尽快失败，让 gclient 基于已下载内容续传。
+          git config --global http.lowSpeedLimit 1024
+          git config --global http.lowSpeedTime 60
           cat > .gclient <<'EOF'
           solutions = [{
             "name": "src",
@@ -97,7 +102,16 @@ jobs:
           }]
           target_os = ["linux"]
           EOF
-          gclient sync --no-history --shallow --nohooks --jobs 4 --revision "src@$BUILD_COMMIT" 2>&1 | tee build-diagnostics/sync.log
+          sync_ok=false
+          for attempt in 1 2 3; do
+            echo "gclient sync attempt $attempt/3" | tee -a build-diagnostics/sync.log
+            if gclient sync --no-history --shallow --nohooks --jobs 4 --revision "src@$BUILD_COMMIT" 2>&1 | tee -a build-diagnostics/sync.log; then
+              sync_ok=true
+              break
+            fi
+            sleep $((attempt * 10))
+          done
+          test "$sync_ok" = true
           test "$(git -C src rev-parse HEAD)" = "$BUILD_COMMIT"
 
       - name: Install Linux build dependencies
