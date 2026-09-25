@@ -7,11 +7,14 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_set.h"
+#include "base/files/file.h"
+#include "base/functional/callback_forward.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
@@ -19,6 +22,8 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
+#include "base/unguessable_token.h"
 #include "components/viz/common/display/display_scheduler_draw_result.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
@@ -38,6 +43,7 @@
 #include "components/viz/service/surfaces/surface_manager.h"
 #include "components/viz/service/viz_service_export.h"
 #include "ui/gfx/display_color_spaces.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/overlay_transform.h"
 #include "ui/gfx/swap_result.h"
 #include "ui/latency/latency_info.h"
@@ -150,6 +156,14 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void NotifyMinSupportedVsyncInterval(base::TimeDelta min_vsync_interval);
 
   const SurfaceId& CurrentSurfaceId() const;
+
+  bool ArmMideoFrame(const SurfaceId& target_surface_id,
+                     const base::UnguessableToken& frame_token,
+                     base::File buffer_file,
+                     const base::UnguessableToken& buffer_id,
+                     uint64_t buffer_offset,
+                     const gfx::Size& size,
+                     base::OnceCallback<void(bool)> completion_callback);
 
   // DisplaySchedulerClient implementation.
   bool DrawAndSwap(const DrawAndSwapParams& params) override;
@@ -283,6 +297,21 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
     std::optional<PossibleDeadline> selected_deadline_;
   };
 
+  struct PendingMideoFrame {
+    SurfaceId target_surface_id;
+    base::UnguessableToken frame_token;
+    base::File buffer_file;
+    base::UnguessableToken buffer_id;
+    uint64_t buffer_offset = 0;
+    gfx::Size size;
+    base::OnceCallback<void(bool)> completion_callback;
+    bool copied = false;
+    int64_t swap_trace_id = 0;
+  };
+
+  bool PendingMideoFrameIsInAggregatedFrame() const;
+  void CompleteMideoFrame(bool success);
+
   void InitializeRenderer();
 
   // ContextLostObserver implementation.
@@ -353,6 +382,9 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   bool disable_swap_until_resize_ = true;
 
   int pending_swaps_ = 0;
+
+  std::optional<PendingMideoFrame> pending_mideo_frame_;
+  base::OneShotTimer mideo_frame_timeout_;
 
   uint64_t frame_sequence_number_ = 0;
 };

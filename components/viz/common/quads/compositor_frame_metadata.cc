@@ -75,6 +75,7 @@ void CompositorFrameMetadata::AsValueInto(
   value->EndDictionary();
 
   value->SetInteger("frame_token", static_cast<int>(frame_token));
+  value->SetBoolean("has_mideo_frame_token", mideo_frame_token.has_value());
   value->SetBoolean("send_frame_token_to_embedder",
                     send_frame_token_to_embedder);
   value->SetDouble("min_page_scale_factor", min_page_scale_factor);
@@ -153,6 +154,7 @@ CompositorFrameMetadata::CompositorFrameMetadata(
       deadline(other.deadline),
       begin_frame_ack(other.begin_frame_ack),
       frame_token(other.frame_token),
+      mideo_frame_token(other.mideo_frame_token),
       send_frame_token_to_embedder(other.send_frame_token_to_embedder),
       min_page_scale_factor(other.min_page_scale_factor),
       top_controls_visible_height(other.top_controls_visible_height),

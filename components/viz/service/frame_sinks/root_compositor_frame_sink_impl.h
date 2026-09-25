@@ -10,9 +10,12 @@
 #include <vector>
 
 #include "base/containers/flat_set.h"
+#include "base/files/file.h"
+#include "base/functional/callback_forward.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
@@ -31,6 +34,7 @@
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom.h"
 #include "ui/base/ozone_buildflags.h"
 #include "ui/gfx/ca_layer_params.h"
+#include "ui/gfx/geometry/size.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "ui/gfx/android/surface_control_frame_rate.h"
@@ -72,6 +76,14 @@ class VIZ_SERVICE_EXPORT RootCompositorFrameSinkImpl
   void DidEvictSurface(const SurfaceId& surface_id);
 
   const SurfaceId& CurrentSurfaceId() const;
+
+  bool ArmMideoFrame(const SurfaceId& target_surface_id,
+                     const base::UnguessableToken& frame_token,
+                     base::File buffer_file,
+                     const base::UnguessableToken& buffer_id,
+                     uint64_t buffer_offset,
+                     const gfx::Size& size,
+                     base::OnceCallback<void(bool)> completion_callback);
 
   // mojom::DisplayPrivate:
   void SetDisplayVisible(bool visible) override;

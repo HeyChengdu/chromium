@@ -134,14 +134,63 @@ void SoftwareRenderer::BeginDrawingFrame() {
 
 void SoftwareRenderer::FinishDrawingFrame() {
   TRACE_EVENT0("viz", "SoftwareRenderer::FinishDrawingFrame");
+  if (pending_mideo_frame_) {
+    TRACE_EVENT("viz", "Mideo.DeliverPresentedFrame");
+    mideo_frame_result_ =
+        WriteMideoFrame(root_canvas_, std::move(*pending_mideo_frame_));
+    pending_mideo_frame_.reset();
+  }
   // `current_canvas_` may be pointing to `current_framebuffer_canvas_`. Make
   // sure to reset it before destroying `current_framebuffer_canvas_`.
   current_canvas_ = nullptr;
   current_framebuffer_canvas_.reset();
 
-  if (root_canvas_)
+  if (root_canvas_) {
     output_device_->EndPaint();
+  }
   root_canvas_ = nullptr;
+}
+
+void SoftwareRenderer::ArmMideoFrame(MideoFrameRequest request) {
+  CHECK(!pending_mideo_frame_);
+  CHECK(!mideo_frame_result_);
+  pending_mideo_frame_ = std::move(request);
+}
+
+std::optional<bool> SoftwareRenderer::TakeMideoFrameResult() {
+  return std::exchange(mideo_frame_result_, std::nullopt);
+}
+
+bool SoftwareRenderer::WriteMideoFrame(SkCanvas* canvas,
+                                       MideoFrameRequest request) {
+  if (!canvas || request.size.IsEmpty() ||
+      canvas->imageInfo().width() != request.size.width() ||
+      canvas->imageInfo().height() != request.size.height() ||
+      !canvas->imageInfo().colorSpace() ||
+      !canvas->imageInfo().colorSpace()->isSRGB()) {
+    return false;
+  }
+  const uint64_t stride = static_cast<uint64_t>(request.size.width()) * 4;
+  const uint64_t bytes = stride * static_cast<uint64_t>(request.size.height());
+  if (!mideo_mapping_ || mideo_mapping_id_ != request.buffer_id) {
+    auto mapping = std::make_unique<base::MemoryMappedFile>();
+    if (!mapping->Initialize(std::move(request.buffer_file),
+                             base::MemoryMappedFile::READ_WRITE)) {
+      return false;
+    }
+    mideo_mapping_ = std::move(mapping);
+    mideo_mapping_id_ = request.buffer_id;
+  }
+  if (request.buffer_offset > mideo_mapping_->length() ||
+      bytes > mideo_mapping_->length() - request.buffer_offset) {
+    return false;
+  }
+  auto destination =
+      mideo_mapping_->mutable_bytes().subspan(request.buffer_offset, bytes);
+  const SkImageInfo info = SkImageInfo::Make(
+      request.size.width(), request.size.height(), kBGRA_8888_SkColorType,
+      kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
+  return canvas->readPixels(info, destination.data(), stride, 0, 0);
 }
 
 void SoftwareRenderer::SwapBuffers(SwapFrameData swap_frame_data) {
@@ -638,62 +687,15 @@ void SoftwareRenderer::CopyDrawnRenderPass(
   sk_sp<SkColorSpace> color_space = CurrentRenderPassSkColorSpace();
   DCHECK(color_space);
 
-  if (request->has_mideo_buffer()) {
-    TRACE_EVENT("viz", "Mideo.CopyDrawnRenderPass");
-    const gfx::Size size = request->mideo_size();
-    if (request->is_scaled() || size != geometry.result_selection.size() ||
-        !color_space->isSRGB()) {
-      return;
-    }
-    // 受控导出只支持固定尺寸、无缩放的 sRGB 软件合成。
-    // 每个像素只从合成画布写出一次，不分配中间 SkBitmap。
-    const uint64_t stride = static_cast<uint64_t>(size.width()) * 4;
-    const uint64_t bytes = stride * static_cast<uint64_t>(size.height());
-    if (!mideo_mapping_ || mideo_mapping_id_ != request->mideo_id()) {
-      TRACE_EVENT("viz", "Mideo.MapSharedBuffer");
-      auto mapping = std::make_unique<base::MemoryMappedFile>();
-      if (!mapping->Initialize(request->TakeMideoFile(),
-                               base::MemoryMappedFile::READ_WRITE)) {
-        return;
-      }
-      mideo_mapping_ = std::move(mapping);
-      mideo_mapping_id_ = request->mideo_id();
-    }
-    const uint64_t offset = request->mideo_offset();
-    if (offset > mideo_mapping_->length() ||
-        bytes > mideo_mapping_->length() - offset) {
-      return;
-    }
-    auto destination = mideo_mapping_->mutable_bytes().subspan(offset, bytes);
-    const SkImageInfo info = SkImageInfo::Make(
-        size.width(), size.height(), kBGRA_8888_SkColorType,
-        kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
-    bool copied = false;
-    {
-      TRACE_EVENT("viz", "Mideo.ReadPixels");
-      copied = current_canvas_->readPixels(info, destination.data(), stride,
-                                           geometry.readback_offset.x(),
-                                           geometry.readback_offset.y());
-    }
-    if (!copied) {
-      return;
-    }
-    auto result = std::make_unique<CopyOutputResult>(
-        request->result_format(), request->result_destination(),
-        geometry.result_selection, false);
-    result->set_mideo_buffer_written();
-    request->SendResult(std::move(result));
-    return;
-  }
-
   SkBitmap bitmap;
   if (request->is_scaled()) {
     // Resolve the source for the scaling input: Initialize a SkPixmap that
     // selects the current RenderPass's output rect within the current canvas
     // and provides access to its pixels.
     SkPixmap render_pass_output;
-    if (!current_canvas_->peekPixels(&render_pass_output))
+    if (!current_canvas_->peekPixels(&render_pass_output)) {
       return;
+    }
     {
       render_pass_output =
           SkPixmap(render_pass_output.info()

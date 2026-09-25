@@ -24,12 +24,37 @@
 #include "components/viz/common/performance_hint_utils.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "components/viz/host/renderer_settings_creation.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "services/viz/privileged/mojom/compositing/frame_sink_manager_test_api.mojom-forward.h"
 #include "services/viz/privileged/mojom/compositing/frame_sinks_metrics_recorder.mojom.h"
 #include "services/viz/privileged/mojom/compositing/renderer_settings.mojom.h"
 
 namespace viz {
+
+namespace {
+
+class MideoFrameCaptureClient final : public mojom::MideoFrameCaptureClient {
+ public:
+  explicit MideoFrameCaptureClient(base::OnceCallback<void(bool)> callback)
+      : callback_(std::move(callback)) {}
+  ~MideoFrameCaptureClient() override {
+    if (callback_) {
+      std::move(callback_).Run(false);
+    }
+  }
+
+  void OnFrameCaptured(bool success) override {
+    if (callback_) {
+      std::move(callback_).Run(success);
+    }
+  }
+
+ private:
+  base::OnceCallback<void(bool)> callback_;
+};
+
+}  // namespace
 
 HostFrameSinkManager::HostFrameSinkManager()
     : debug_renderer_settings_(CreateDefaultDebugRendererSettings()) {}
@@ -358,6 +383,24 @@ void HostFrameSinkManager::RequestCopyOfOutput(
     base::TimeDelta timeout) {
   frame_sink_manager_->RequestCopyOfOutput(surface_id, std::move(request),
                                            capture_exact_surface_id, timeout);
+}
+
+void HostFrameSinkManager::ArmMideoFrame(
+    const SurfaceId& surface_id,
+    const base::UnguessableToken& frame_token,
+    base::File buffer_file,
+    const base::UnguessableToken& buffer_id,
+    uint64_t buffer_offset,
+    const gfx::Size& size,
+    base::OnceCallback<void(bool)> armed_callback,
+    base::OnceCallback<void(bool)> completion_callback) {
+  mojo::PendingRemote<mojom::MideoFrameCaptureClient> client;
+  mojo::MakeSelfOwnedReceiver(
+      std::make_unique<MideoFrameCaptureClient>(std::move(completion_callback)),
+      client.InitWithNewPipeAndPassReceiver());
+  frame_sink_manager_->ArmMideoFrame(
+      surface_id, frame_token, std::move(buffer_file), buffer_id, buffer_offset,
+      size, std::move(client), std::move(armed_callback));
 }
 
 void HostFrameSinkManager::SetupRenderInputRouterDelegateConnection(

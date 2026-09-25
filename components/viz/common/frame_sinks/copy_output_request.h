@@ -10,7 +10,6 @@
 #include <string>
 #include <utility>
 
-#include "base/files/file.h"
 #include "base/functional/callback.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/unguessable_token.h"
@@ -146,20 +145,6 @@ class VIZ_COMMON_EXPORT CopyOutputRequest {
   bool has_blit_request() const { return blit_request_.has_value(); }
   const BlitRequest& blit_request() const { return *blit_request_; }
 
-  // 仅可信 Browser 创建的外部像素目标；Viz 只接收句柄，不打开路径。
-  void SetMideoBuffer(base::File file, const base::UnguessableToken& id,
-                      uint64_t offset, const gfx::Size& size) {
-    mideo_file_ = std::move(file);
-    mideo_id_ = id;
-    mideo_offset_ = offset;
-    mideo_size_ = size;
-  }
-  bool has_mideo_buffer() const { return mideo_id_.has_value(); }
-  base::File TakeMideoFile() { return std::move(mideo_file_); }
-  const base::UnguessableToken& mideo_id() const { return *mideo_id_; }
-  uint64_t mideo_offset() const { return mideo_offset_; }
-  const gfx::Size& mideo_size() const { return mideo_size_; }
-
   // Sends the result from executing this request. Called by the internal
   // implementation, usually a DirectRenderer.
   void SendResult(std::unique_ptr<CopyOutputResult> result);
@@ -195,10 +180,6 @@ class VIZ_COMMON_EXPORT CopyOutputRequest {
   std::optional<gfx::Rect> result_selection_;
 
   std::optional<BlitRequest> blit_request_;
-  base::File mideo_file_;
-  std::optional<base::UnguessableToken> mideo_id_;
-  uint64_t mideo_offset_ = 0;
-  gfx::Size mideo_size_;
 };
 
 }  // namespace viz

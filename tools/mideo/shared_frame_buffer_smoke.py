@@ -21,7 +21,7 @@ from PIL import Image
 import websocket
 
 class Browser:
-    def __init__(self, binary, directory, width, height, skip_force_redraw=False, copy_after_present=False):
+    def __init__(self, binary, directory, width, height):
         self.width, self.height = width, height
         self.frame_bytes = width * height * 4
         self.path = directory / 'frames.bgra'
@@ -34,8 +34,6 @@ class Browser:
             '--force-color-profile=srgb', '--remote-debugging-port=0',
             '--remote-allow-origins=*', f'--window-size={width},{height}',
             f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3',
-            *(['--mideo-skip-force-redraw'] if skip_force_redraw else []),
-            *(['--mideo-copy-after-present'] if copy_after_present else []),
             'about:blank'], stdout=subprocess.DEVNULL, stderr=self.log)
         self.socket = None
         self.request_id = 0
@@ -84,13 +82,15 @@ class Browser:
     def update(self, n):
         self.evaluate(f'''(() => {{document.querySelector('#text').textContent='Geometry 数理化 x²+α=β ∑ₙ {n}'; const c=document.querySelector('canvas').getContext('2d'); c.clearRect(0,0,640,360); const g=c.createLinearGradient(0,0,640,360);g.addColorStop(0,'#0485f7');g.addColorStop(1,'#eb8855');c.fillStyle=g;c.fillRect(0,0,640,360);c.fillStyle='rgba(255,255,255,.37)';c.fillRect({n % 300},30,100,120); return new Promise(r=>requestAnimationFrame(()=>r()));}})()''')
 
-    def capture(self, format='mideo-shm', fail=False):
+    def capture(self, format='shared', fail=False):
+        if format == 'shared':
+            return self.send('Page.captureMideoFrame', fail=fail)
         return self.send('Page.captureScreenshot', dict(format=format, fromSurface=True, captureBeyondViewport=False, optimizeForSpeed=True), fail)
 
     def shared(self):
         result = self.capture()
         meta = json.loads(base64.b64decode(result['data']))
-        assert meta['version'] == 2 and meta['producer'] == 'viz-software'
+        assert meta['version'] == 3 and meta['producer'] == 'viz-presented-software'
         assert (meta['width'], meta['height'], meta['stride']) == (self.width, self.height, self.width*4)
         start = meta['slot'] * self.frame_bytes
         return meta, bytes(self.mapping[start:start+self.frame_bytes])
@@ -108,8 +108,8 @@ class Browser:
         self.mapping.close(); self.file.close(); self.log.close()
 
 
-def quality(binary, ffmpeg, directory, skip_force_redraw=False, copy_after_present=False):
-    browser = Browser(binary, directory, 640, 360, skip_force_redraw, copy_after_present)
+def quality(binary, ffmpeg, directory):
+    browser = Browser(binary, directory, 640, 360)
     frames = []
     metadata = []
     try:
@@ -176,9 +176,9 @@ def quality(binary, ffmpeg, directory, skip_force_redraw=False, copy_after_prese
     finally: browser.close()
 
 
-def benchmark(binary, directory, skip_force_redraw=False, copy_after_present=False):
-    browser = Browser(binary, directory, 2560, 1440, skip_force_redraw, copy_after_present)
-    samples = {name: [] for name in ['png', 'mideo-shm']}
+def benchmark(binary, directory):
+    browser = Browser(binary, directory, 2560, 1440)
+    samples = {name: [] for name in ['png', 'shared']}
     try:
         for n in range(25):
             browser.update(n)
@@ -186,7 +186,7 @@ def benchmark(binary, directory, skip_force_redraw=False, copy_after_present=Fal
                 start = time.perf_counter()
                 result = browser.capture(format)
                 elapsed = (time.perf_counter()-start)*1000
-                if format == 'mideo-shm':
+                if format == 'shared':
                     browser.release(json.loads(base64.b64decode(result['data'])))
                 if n >= 5: samples[format].append(elapsed)
         return {key: dict(count=len(values), meanMs=statistics.mean(values), p50Ms=statistics.median(values), p95Ms=sorted(values)[int(.95*(len(values)-1))]) for key, values in samples.items()}
@@ -198,21 +198,17 @@ def main():
     parser.add_argument('headless_shell', type=Path)
     parser.add_argument('ffmpeg', type=Path)
     parser.add_argument('--report', type=Path, required=True)
-    parser.add_argument('--skip-force-redraw', action='store_true')
-    parser.add_argument('--copy-after-present', action='store_true')
     args = parser.parse_args()
-    if args.skip_force_redraw and args.copy_after_present:
-        parser.error('两个截图实验不能同时启用')
     with tempfile.TemporaryDirectory(prefix='mideo-gate-', dir='/dev/shm') as temp:
         root = Path(temp)
         def directory(name):
             value=root/name;value.mkdir();return value
         report = {}
         try:
-            report['quality'] = quality(args.headless_shell, args.ffmpeg, directory('quality'), args.skip_force_redraw, args.copy_after_present)
-            report['singleBrowser'] = benchmark(args.headless_shell, directory('single'), args.skip_force_redraw, args.copy_after_present)
+            report['quality'] = quality(args.headless_shell, args.ffmpeg, directory('quality'))
+            report['singleBrowser'] = benchmark(args.headless_shell, directory('single'))
             with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = [pool.submit(benchmark,args.headless_shell,directory(f'four-{n}'),args.skip_force_redraw,args.copy_after_present) for n in range(4)]
+                futures = [pool.submit(benchmark,args.headless_shell,directory(f'four-{n}')) for n in range(4)]
                 report['fourBrowsers'] = [f.result() for f in futures]
             report['passed'] = True
         except BaseException as error:

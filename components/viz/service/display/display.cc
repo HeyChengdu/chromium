@@ -20,6 +20,7 @@
 #include "base/containers/flat_set.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/observer_list.h"
@@ -961,10 +962,30 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     draw_timer.emplace();
     overlay_processor_->SetFrameSequenceNumber(frame_sequence_number_);
     overlay_processor_->SetIsPageFullscreen(frame.page_fullscreen_mode);
+    bool mideo_frame_armed = false;
+    if (pending_mideo_frame_ && !pending_mideo_frame_->copied &&
+        software_renderer_ && PendingMideoFrameIsInAggregatedFrame()) {
+      software_renderer_->ArmMideoFrame(SoftwareRenderer::MideoFrameRequest{
+          .buffer_file = std::move(pending_mideo_frame_->buffer_file),
+          .buffer_id = pending_mideo_frame_->buffer_id,
+          .buffer_offset = pending_mideo_frame_->buffer_offset,
+          .size = pending_mideo_frame_->size,
+      });
+      mideo_frame_armed = true;
+    }
     renderer_->DrawFrame(&frame.render_pass_list, device_scale_factor_,
                          current_surface_size, display_color_spaces_,
                          std::move(frame.surface_damage_rect_list_),
                          frame.tracked_element_rects);
+    if (mideo_frame_armed) {
+      const std::optional<bool> result =
+          software_renderer_->TakeMideoFrameResult();
+      if (!result.value_or(false)) {
+        CompleteMideoFrame(false);
+      } else {
+        pending_mideo_frame_->copied = true;
+      }
+    }
     TRACE_EVENT_END("viz,benchmark", perfetto::NamedTrack("Graphics.Pipeline",
                                                           display_trace_id));
   } else {
@@ -1073,6 +1094,10 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
         current_surface_id_.local_surface_id().parent_sequence_number();
     swap_frame_data.choreographer_vsync_id = params.choreographer_vsync_id;
     swap_frame_data.swap_trace_id = display_trace_id;
+    if (pending_mideo_frame_ && pending_mideo_frame_->copied &&
+        pending_mideo_frame_->swap_trace_id == 0) {
+      pending_mideo_frame_->swap_trace_id = display_trace_id;
+    }
     swap_frame_data.display_hdr_headroom =
         display_color_spaces_.GetHDRMaxLuminanceRelative();
 
@@ -1128,8 +1153,13 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
 
     // If we did draw, but not going to swap we need notify DirectRenderer that
     // swap buffers will be skipped.
-    if (should_draw)
+    if (should_draw) {
       renderer_->SwapBuffersSkipped();
+    }
+
+    if (pending_mideo_frame_ && pending_mideo_frame_->copied) {
+      CompleteMideoFrame(false);
+    }
 
     TRACE_EVENT_END("viz,benchmark",
                     /* Graphics.Pipeline.DrawAndSwap */
@@ -1372,6 +1402,10 @@ void Display::DidReceivePresentationFeedback(
   }
 
   presentation_group_timing.OnPresent(copy_feedback);
+  if (pending_mideo_frame_ && pending_mideo_frame_->copied &&
+      pending_mideo_frame_->swap_trace_id == presented_trace_id) {
+    CompleteMideoFrame(true);
+  }
   if (scheduler_) {
     scheduler_->OnPresentationFeedback(
         copy_feedback, presentation_group_timing.choreographer_vsync_id(),
@@ -1412,30 +1446,93 @@ const SurfaceId& Display::CurrentSurfaceId() const {
   return current_surface_id_;
 }
 
+bool Display::ArmMideoFrame(
+    const SurfaceId& target_surface_id,
+    const base::UnguessableToken& frame_token,
+    base::File buffer_file,
+    const base::UnguessableToken& buffer_id,
+    uint64_t buffer_offset,
+    const gfx::Size& size,
+    base::OnceCallback<void(bool)> completion_callback) {
+  if (pending_mideo_frame_ || !software_renderer_ ||
+      !target_surface_id.is_valid() || frame_token.is_empty() ||
+      buffer_id.is_empty() || !buffer_file.IsValid() || size.IsEmpty() ||
+      size != current_surface_size_) {
+    return false;
+  }
+  pending_mideo_frame_.emplace(PendingMideoFrame{
+      .target_surface_id = target_surface_id,
+      .frame_token = frame_token,
+      .buffer_file = std::move(buffer_file),
+      .buffer_id = buffer_id,
+      .buffer_offset = buffer_offset,
+      .size = size,
+      .completion_callback = std::move(completion_callback),
+  });
+  mideo_frame_timeout_.Start(FROM_HERE, base::Seconds(15),
+                             base::BindOnce(&Display::CompleteMideoFrame,
+                                            base::Unretained(this), false));
+  return true;
+}
+
+bool Display::PendingMideoFrameIsInAggregatedFrame() const {
+  CHECK(pending_mideo_frame_);
+  for (const SurfaceId& surface_id :
+       aggregator_->previous_contained_surfaces()) {
+    if (surface_id.frame_sink_id() !=
+        pending_mideo_frame_->target_surface_id.frame_sink_id()) {
+      continue;
+    }
+    Surface* surface = surface_manager_->GetSurfaceForId(surface_id);
+    if (surface && surface->HasActiveFrame() &&
+        surface->GetActiveFrameMetadata().mideo_frame_token ==
+            pending_mideo_frame_->frame_token) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void Display::CompleteMideoFrame(bool success) {
+  if (!pending_mideo_frame_) {
+    return;
+  }
+  mideo_frame_timeout_.Stop();
+  base::OnceCallback<void(bool)> callback =
+      std::move(pending_mideo_frame_->completion_callback);
+  pending_mideo_frame_.reset();
+  std::move(callback).Run(success);
+}
+
 LocalSurfaceId Display::GetSurfaceAtAggregation(
     const FrameSinkId& frame_sink_id) const {
-  if (!aggregator_)
+  if (!aggregator_) {
     return LocalSurfaceId();
+  }
   auto it = aggregator_->previous_contained_frame_sinks().find(frame_sink_id);
-  if (it == aggregator_->previous_contained_frame_sinks().end())
+  if (it == aggregator_->previous_contained_frame_sinks().end()) {
     return LocalSurfaceId();
+  }
   return it->second;
 }
 
 void Display::SoftwareDeviceUpdatedCALayerParams(
     gfx::CALayerParams ca_layer_params) {
-  if (client_)
+  if (client_) {
     client_->DisplayDidReceiveCALayerParams(std::move(ca_layer_params));
+  }
 }
 
 void Display::ForceImmediateDrawAndSwapIfPossible() {
-  if (scheduler_)
+  if (scheduler_) {
     scheduler_->ForceImmediateSwapIfPossible();
+  }
 }
 
 void Display::SetNeedsOneBeginFrame(const BeginFrameArgs& args) {
-  if (scheduler_)
+  if (scheduler_) {
     scheduler_->SetNeedsOneBeginFrame(args, /*needs_draw=*/false);
+  }
 }
 
 #if BUILDFLAG(IS_ANDROID)

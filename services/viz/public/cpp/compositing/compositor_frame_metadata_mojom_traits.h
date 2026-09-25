@@ -143,6 +143,11 @@ struct StructTraits<viz::mojom::CompositorFrameMetadataDataView,
     return metadata.frame_token;
   }
 
+  static const std::optional<base::UnguessableToken>& mideo_frame_token(
+      const viz::CompositorFrameMetadata& metadata) {
+    return metadata.mideo_frame_token;
+  }
+
   static bool send_frame_token_to_embedder(
       const viz::CompositorFrameMetadata& metadata) {
     return metadata.send_frame_token_to_embedder;

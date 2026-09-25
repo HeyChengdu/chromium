@@ -18,6 +18,7 @@
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/files/file.h"
 #include "base/functional/callback_helpers.h"
 #include "base/functional/function_ref.h"
 #include "base/memory/raw_ptr.h"
@@ -26,6 +27,7 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "components/input/render_input_router.mojom.h"
 #include "components/viz/common/constants.h"
 #include "components/viz/common/hit_test/hit_test_data_provider.h"
@@ -56,6 +58,7 @@
 #include "services/viz/privileged/mojom/compositing/frame_sink_video_capture.mojom.h"
 #include "services/viz/privileged/mojom/compositing/frame_sinks_metrics_recorder.mojom.h"
 #include "services/viz/public/mojom/compositing/video_detector_observer.mojom.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace viz {
 
@@ -189,6 +192,14 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
                            std::unique_ptr<CopyOutputRequest> request,
                            bool capture_exact_surface_id,
                            base::TimeDelta timeout) override;
+  void ArmMideoFrame(const SurfaceId& surface_id,
+                     const base::UnguessableToken& frame_token,
+                     base::File buffer_file,
+                     const base::UnguessableToken& buffer_id,
+                     uint64_t buffer_offset,
+                     const gfx::Size& size,
+                     mojo::PendingRemote<mojom::MideoFrameCaptureClient> client,
+                     ArmMideoFrameCallback callback) override;
 #if BUILDFLAG(IS_ANDROID)
   void CacheBackBuffer(uint32_t cache_id,
                        const FrameSinkId& root_frame_sink_id) override;

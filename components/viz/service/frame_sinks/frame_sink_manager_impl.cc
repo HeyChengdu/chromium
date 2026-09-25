@@ -577,6 +577,39 @@ void FrameSinkManagerImpl::RequestCopyOfOutput(
   support->RequestCopyOfOutput(std::move(pending_request));
 }
 
+void FrameSinkManagerImpl::ArmMideoFrame(
+    const SurfaceId& surface_id,
+    const base::UnguessableToken& frame_token,
+    base::File buffer_file,
+    const base::UnguessableToken& buffer_id,
+    uint64_t buffer_offset,
+    const gfx::Size& size,
+    mojo::PendingRemote<mojom::MideoFrameCaptureClient> client,
+    ArmMideoFrameCallback callback) {
+  auto completion = base::BindOnce(
+      [](mojo::PendingRemote<mojom::MideoFrameCaptureClient> client,
+         bool success) {
+        mojo::Remote<mojom::MideoFrameCaptureClient> remote(std::move(client));
+        remote->OnFrameCaptured(success);
+      },
+      std::move(client));
+
+  FrameSinkId root_id = surface_id.frame_sink_id();
+  if (!root_sink_map_.contains(root_id)) {
+    root_id = GetOldestRootCompositorFrameSinkId(root_id);
+  }
+  RootCompositorFrameSinkImpl* root =
+      base::FindPtrOrNull(root_sink_map_, root_id);
+  const bool accepted =
+      root && root->ArmMideoFrame(surface_id, frame_token,
+                                  std::move(buffer_file), buffer_id,
+                                  buffer_offset, size, std::move(completion));
+  if (!accepted && completion) {
+    std::move(completion).Run(false);
+  }
+  std::move(callback).Run(accepted);
+}
+
 void FrameSinkManagerImpl::DestroyFrameSinkBundle(const FrameSinkBundleId& id) {
   bundle_map_.erase(id);
 }

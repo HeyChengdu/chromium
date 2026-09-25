@@ -588,9 +588,6 @@ domain Page
         jpeg
         png
         webp
-        # 由软件 Viz 直接写入 --mideo-frame-buffer 指定的持久 BGRA 槽。
-        # 只允许可信离线会话、固定 sRGB 画幅，返回版本 2 槽元数据。
-        mideo-shm
       # Compression quality from range [0..100] (jpeg only).
       optional integer quality
       # Capture the screenshot of a given region only.
@@ -603,6 +600,13 @@ domain Page
       experimental optional boolean optimizeForSpeed
     returns
       # Base64-encoded image data.
+      binary data
+
+  # Delivers the next tagged, presented compositor frame directly from Viz's
+  # final software display canvas into the configured Mideo shared buffer.
+  experimental command captureMideoFrame
+    returns
+      # Versioned shared-buffer slot metadata.
       binary data
 
   # Releases a Mideo shared-memory slot after the consumer has finished reading.

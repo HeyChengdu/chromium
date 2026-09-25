@@ -47,6 +47,9 @@ StructTraits<viz::mojom::CompositorFrameMetadataDataView,
     return base::unexpected(DeserializationError());
   }
   out->frame_token = data.frame_token();
+  if (!data.ReadMideoFrameToken(&out->mideo_frame_token)) {
+    return base::unexpected(DeserializationError());
+  }
 
   if (!data.ReadContentColorUsage(&out->content_color_usage)) {
     return base::unexpected(DeserializationError());

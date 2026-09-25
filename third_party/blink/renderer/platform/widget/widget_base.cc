@@ -96,6 +96,27 @@ void OnDidPresentForceDrawFrame(
   std::move(callback).Run();
 }
 
+class MideoFrameSwapPromise final : public cc::SwapPromise {
+ public:
+  explicit MideoFrameSwapPromise(base::UnguessableToken frame_token)
+      : frame_token_(std::move(frame_token)) {}
+
+  void DidActivate() override {}
+  void WillSwap(viz::CompositorFrameMetadata* metadata) override {
+    metadata->mideo_frame_token = frame_token_;
+  }
+  void DidSwap() override {}
+  DidNotSwapAction DidNotSwap(DidNotSwapReason reason,
+                              base::TimeTicks) override {
+    return reason == COMMIT_FAILS ? DidNotSwapAction::KEEP_ACTIVE
+                                  : DidNotSwapAction::BREAK_PROMISE;
+  }
+  int64_t GetTraceId() const override { return 0; }
+
+ private:
+  const base::UnguessableToken frame_token_;
+};
+
 bool IsDateTimeInput(ui::TextInputType type) {
   return type == ui::TEXT_INPUT_TYPE_DATE ||
          type == ui::TEXT_INPUT_TYPE_DATE_TIME ||
@@ -431,6 +452,15 @@ void WidgetBase::ForceRedraw(
   // WebTestWebFrameWidgetImpl, providing the additional control over the
   // lifecycle of compositing required by web tests. This will be a no-op on
   // production.
+  client_->ScheduleAnimationForWebTests();
+}
+
+void WidgetBase::ForceRedrawForMideo(
+    const base::UnguessableToken& frame_token) {
+  TRACE_EVENT0("renderer", "WidgetBase::ForceRedrawForMideo");
+  LayerTreeHost()->QueueSwapPromise(
+      std::make_unique<MideoFrameSwapPromise>(frame_token));
+  LayerTreeHost()->SetNeedsCommitWithForcedRedraw();
   client_->ScheduleAnimationForWebTests();
 }
 

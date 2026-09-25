@@ -16,6 +16,8 @@
 #include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/containers/flat_map.h"
+#include "base/files/file.h"
+#include "base/functional/callback_forward.h"
 #include "base/functional/callback_helpers.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
@@ -24,6 +26,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "components/input/render_input_router.mojom.h"
 #include "components/viz/common/hit_test/hit_test_data_provider.h"
 #include "components/viz/common/hit_test/hit_test_query.h"
@@ -42,6 +45,7 @@
 #include "services/viz/privileged/mojom/compositing/frame_sink_manager_test_api.mojom.h"
 #include "services/viz/privileged/mojom/compositing/frame_sinks_metrics_recorder.mojom.h"
 #include "services/viz/public/mojom/compositing/frame_sink_bundle.mojom.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -235,6 +239,15 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
                            std::unique_ptr<CopyOutputRequest> request,
                            bool capture_exact_surface_id = false,
                            base::TimeDelta timeout = base::TimeDelta());
+
+  void ArmMideoFrame(const SurfaceId& surface_id,
+                     const base::UnguessableToken& frame_token,
+                     base::File buffer_file,
+                     const base::UnguessableToken& buffer_id,
+                     uint64_t buffer_offset,
+                     const gfx::Size& size,
+                     base::OnceCallback<void(bool)> armed_callback,
+                     base::OnceCallback<void(bool)> completion_callback);
 
   // Setup the connection between the Browser (at RenderWidgetHost level) and
   // the VizCompositor thread (at InputManager level) to allow transferring

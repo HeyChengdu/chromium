@@ -19,6 +19,7 @@
 #include "base/callback_list.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/files/file.h"
 #include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
@@ -31,6 +32,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "base/types/pass_key.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "cc/mojom/render_frame_metadata.mojom.h"
 #include "components/input/event_with_latency_info.h"
@@ -450,7 +452,11 @@ class CONTENT_EXPORT RenderWidgetHostImpl
   // defined.
   // Returns a gfx::Image that is backed by an NSImage on MacOS or by an
   // SkBitmap otherwise. The gfx::Image may be empty if the snapshot failed.
-  void CaptureMideoFrame(std::unique_ptr<viz::CopyOutputRequest> request);
+  void CapturePresentedMideoFrame(base::File buffer_file,
+                                  const base::UnguessableToken& buffer_id,
+                                  uint64_t buffer_offset,
+                                  const gfx::Size& size,
+                                  base::OnceCallback<void(bool)> callback);
 
   using GetSnapshotFromBrowserCallback =
       base::OnceCallback<void(const gfx::Image&)>;

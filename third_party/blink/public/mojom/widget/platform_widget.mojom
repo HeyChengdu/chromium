@@ -8,6 +8,7 @@ import "cc/mojom/render_frame_metadata.mojom";
 import "mojo/public/mojom/base/string16.mojom";
 import "mojo/public/mojom/base/text_direction.mojom";
 import "mojo/public/mojom/base/time.mojom";
+import "mojo/public/mojom/base/unguessable_token.mojom";
 import "services/viz/public/mojom/compositing/compositor_frame_sink.mojom";
 import "ui/base/cursor/mojom/cursor.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
@@ -102,6 +103,9 @@ interface Widget {
   // can happen in renderer (abortion of the commit or draw, loss of output
   // surface etc.).
   ForceRedraw() => ();
+
+  // Tags the next forced compositor frame for direct Mideo delivery by Viz.
+  ForceRedrawForMideo(mojo_base.mojom.UnguessableToken frame_token);
 
   // Update the visual properties of the widget.
   UpdateVisualProperties(VisualProperties visual_properties);

@@ -6,9 +6,11 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_SOFTWARE_RENDERER_H_
 
 #include <memory>
+#include <optional>
 
-#include "base/memory/raw_ptr.h"
+#include "base/files/file.h"
 #include "base/files/memory_mapped_file.h"
+#include "base/memory/raw_ptr.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
@@ -16,6 +18,7 @@
 #include "components/viz/service/display/display_resource_provider_software.h"
 #include "components/viz/service/viz_service_export.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/latency/latency_info.h"
 
 namespace viz {
@@ -30,6 +33,13 @@ class TileDrawQuad;
 
 class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
  public:
+  struct MideoFrameRequest {
+    base::File buffer_file;
+    base::UnguessableToken buffer_id;
+    uint64_t buffer_offset = 0;
+    gfx::Size size;
+  };
+
   SoftwareRenderer(const RendererSettings* settings,
                    const DebugRendererSettings* debug_settings,
                    OutputSurface* output_surface,
@@ -42,6 +52,8 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
   ~SoftwareRenderer() override;
 
   void SwapBuffers(SwapFrameData swap_frame_data) override;
+  void ArmMideoFrame(MideoFrameRequest request);
+  std::optional<bool> TakeMideoFrameResult();
 
  protected:
   bool CanPartialSwap() override;
@@ -78,9 +90,13 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
       const AggregatedRenderPassId& render_pass_id) const override;
 
  private:
+  bool WriteMideoFrame(SkCanvas* canvas, MideoFrameRequest request);
+
   // 每个显示器仅保留最近一个授权缓冲区；切换会话或销毁显示器时释放。
   std::unique_ptr<base::MemoryMappedFile> mideo_mapping_;
   base::UnguessableToken mideo_mapping_id_;
+  std::optional<MideoFrameRequest> pending_mideo_frame_;
+  std::optional<bool> mideo_frame_result_;
   struct RenderPassBitmapBacking {
     SkBitmap bitmap;
     gfx::Rect drawn_rect;

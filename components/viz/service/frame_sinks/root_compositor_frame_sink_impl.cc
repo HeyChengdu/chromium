@@ -354,13 +354,27 @@ const SurfaceId& RootCompositorFrameSinkImpl::CurrentSurfaceId() const {
   return display_->CurrentSurfaceId();
 }
 
+bool RootCompositorFrameSinkImpl::ArmMideoFrame(
+    const SurfaceId& target_surface_id,
+    const base::UnguessableToken& frame_token,
+    base::File buffer_file,
+    const base::UnguessableToken& buffer_id,
+    uint64_t buffer_offset,
+    const gfx::Size& size,
+    base::OnceCallback<void(bool)> completion_callback) {
+  return display_->ArmMideoFrame(
+      target_surface_id, frame_token, std::move(buffer_file), buffer_id,
+      buffer_offset, size, std::move(completion_callback));
+}
+
 void RootCompositorFrameSinkImpl::SetDisplayVisible(bool visible) {
   display_->SetVisible(visible);
 }
 
 void RootCompositorFrameSinkImpl::Resize(const gfx::Size& size) {
-  if (!display_->resize_based_on_root_surface())
+  if (!display_->resize_based_on_root_surface()) {
     display_->Resize(size);
+  }
 }
 
 void RootCompositorFrameSinkImpl::SetDisplayColorMatrix(

@@ -160,6 +160,8 @@ class PageHandler : public DevToolsDomainHandler,
       std::optional<bool> capture_beyond_viewport,
       std::optional<bool> optimize_for_speed,
       std::unique_ptr<CaptureScreenshotCallback> callback) override;
+  void CaptureMideoFrame(
+      std::unique_ptr<CaptureMideoFrameCallback> callback) override;
   Response ReleaseMideoFrame(int slot, const std::string& sequence) override;
   void CaptureSnapshot(
       std::optional<std::string> format,
@@ -257,10 +259,11 @@ class PageHandler : public DevToolsDomainHandler,
 
   void ScreenshotCaptured(std::unique_ptr<PendingScreenshotRequest> request,
                           const gfx::Image& image);
-  void CaptureMideoFrame(const gfx::Size& size,
-                         std::unique_ptr<CaptureScreenshotCallback> callback);
+  void CaptureMideoFrameIntoBuffer(
+      const gfx::Size& size,
+      std::unique_ptr<CaptureMideoFrameCallback> callback);
   void MideoBufferReady(const gfx::Size& size,
-                        std::unique_ptr<CaptureScreenshotCallback> callback,
+                        std::unique_ptr<CaptureMideoFrameCallback> callback,
                         std::unique_ptr<MideoFrameBuffer> buffer);
   bool mideo_initializing_ = false;
   bool mideo_capture_pending_ = false;

@@ -72,6 +72,7 @@ TEST(CompositorFrameMetadata, Clone) {
                                     base::Milliseconds(16), true);
   metadata.begin_frame_ack = BeginFrameAck(999, 888, true, 777);
   metadata.frame_token = 6;
+  metadata.mideo_frame_token = base::UnguessableToken::Create();
   metadata.send_frame_token_to_embedder = true;
   metadata.min_page_scale_factor = 123.3f;
   metadata.top_controls_visible_height.emplace(0.5);
@@ -108,6 +109,7 @@ TEST(CompositorFrameMetadata, Clone) {
       AreBeginFrameAcksEqual(clone.begin_frame_ack, metadata.begin_frame_ack));
 
   EXPECT_EQ(clone.frame_token, metadata.frame_token);
+  EXPECT_EQ(clone.mideo_frame_token, metadata.mideo_frame_token);
   EXPECT_EQ(clone.send_frame_token_to_embedder,
             metadata.send_frame_token_to_embedder);
   EXPECT_FLOAT_EQ(clone.min_page_scale_factor, metadata.min_page_scale_factor);

@@ -2331,50 +2331,36 @@ void RenderWidgetHostImpl::NotifyScreenInfoChanged(bool ignore_ack) {
   }
 }
 
-void RenderWidgetHostImpl::CaptureMideoFrame(
-    std::unique_ptr<viz::CopyOutputRequest> request) {
-  // 与 CDP 新 Surface 截图保持同一同步顺序；失败不能读取旧 Surface。
-  if (!view_ || !blink_widget_.is_bound()) return;
-  // 实验路径仅在强制重绘的帧已呈现后读取当前 Surface。默认仍使用
-  // CDP 新 Surface 路径，像素与连续帧门禁通过前不得用于正式导出。
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          "mideo-copy-after-present")) {
-    blink_widget_->ForceRedraw(base::BindOnce(
-        [](base::WeakPtr<RenderWidgetHostImpl> host,
-           std::unique_ptr<viz::CopyOutputRequest> request) {
-          if (!host || !host->view_) return;
-          const auto surface = host->view_->GetCurrentSurfaceId();
-          if (!surface.is_valid()) return;
-          request->set_result_task_runner(
-              base::SingleThreadTaskRunner::GetCurrentDefault());
-          TRACE_EVENT("viz", "Mideo.RequestCopyAfterPresent");
-          host->GetHostFrameSinkManager()->RequestCopyOfOutput(
-              surface, std::move(request), false, base::Seconds(15));
-        },
-        weak_factory_.GetWeakPtr(), std::move(request)));
+void RenderWidgetHostImpl::CapturePresentedMideoFrame(
+    base::File buffer_file,
+    const base::UnguessableToken& buffer_id,
+    uint64_t buffer_offset,
+    const gfx::Size& size,
+    base::OnceCallback<void(bool)> callback) {
+  if (!view_ || !blink_widget_.is_bound()) {
+    std::move(callback).Run(false);
     return;
   }
-  // 实验开关：验证新 Surface 的强制重绘能否单独提交最新内容。
-  // 未通过像素与连续帧门禁前，默认仍保留 CDP 的双重同步顺序。
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          "mideo-skip-force-redraw")) {
-    TRACE_EVENT("viz", "Mideo.ForceRedrawCall");
-    blink_widget_->ForceRedraw(base::DoNothing());
+  const viz::SurfaceId surface_id = view_->GetCurrentSurfaceId();
+  if (!surface_id.is_valid()) {
+    std::move(callback).Run(false);
+    return;
   }
-  const auto previous_surface = view_->GetCurrentSurfaceId();
-  // 有待确认的 VisualProperties 时发送可能延后，但 Surface 身份已经推进。
-  {
-    TRACE_EVENT("viz", "Mideo.RequestRepaintCall");
-    RequestRepaintOnNewSurface();
-  }
-  const auto surface = view_->GetCurrentSurfaceId();
-  if (!surface.is_valid() || surface == previous_surface) return;
-  request->set_result_task_runner(base::SingleThreadTaskRunner::GetCurrentDefault());
-  {
-    TRACE_EVENT("viz", "Mideo.RequestCopyCall");
-    GetHostFrameSinkManager()->RequestCopyOfOutput(
-        surface, std::move(request), false, base::Seconds(15));
-  }
+  const base::UnguessableToken frame_token = base::UnguessableToken::Create();
+  GetHostFrameSinkManager()->ArmMideoFrame(
+      surface_id, frame_token, std::move(buffer_file), buffer_id, buffer_offset,
+      size,
+      base::BindOnce(
+          [](base::WeakPtr<RenderWidgetHostImpl> host,
+             base::UnguessableToken frame_token, bool accepted) {
+            if (!accepted || !host || !host->blink_widget_.is_bound()) {
+              return;
+            }
+            TRACE_EVENT("viz", "Mideo.ForceTaggedRedraw");
+            host->blink_widget_->ForceRedrawForMideo(frame_token);
+          },
+          weak_factory_.GetWeakPtr(), frame_token),
+      std::move(callback));
 }
 
 void RenderWidgetHostImpl::GetSnapshotFromBrowser(

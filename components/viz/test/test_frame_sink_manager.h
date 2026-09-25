@@ -7,9 +7,12 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "base/files/file.h"
 #include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "components/input/render_input_router.mojom.h"
 #include "components/viz/common/surfaces/frame_sink_bundle_id.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -19,6 +22,7 @@
 #include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
 #include "services/viz/privileged/mojom/compositing/frame_sink_manager_test_api.mojom.h"
 #include "services/viz/privileged/mojom/compositing/frame_sinks_metrics_recorder.mojom.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace viz {
 
@@ -78,6 +82,16 @@ class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
                            std::unique_ptr<CopyOutputRequest> request,
                            bool capture_exact_surface_id,
                            base::TimeDelta timeout) override {}
+  void ArmMideoFrame(const SurfaceId& surface_id,
+                     const base::UnguessableToken& frame_token,
+                     base::File buffer_file,
+                     const base::UnguessableToken& buffer_id,
+                     uint64_t buffer_offset,
+                     const gfx::Size& size,
+                     mojo::PendingRemote<mojom::MideoFrameCaptureClient> client,
+                     ArmMideoFrameCallback callback) override {
+    std::move(callback).Run(false);
+  }
 #if BUILDFLAG(IS_ANDROID)
   void CacheBackBuffer(uint32_t cache_id,
                        const FrameSinkId& root_frame_sink_id) override {}

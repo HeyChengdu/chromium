@@ -43,14 +43,14 @@ class TraceBrowser(Browser):
         return b''.join(chunks)
 
 
-def run(binary: Path, root: Path, skip_force_redraw=False, copy_after_present=False):
+def run(binary: Path, root: Path):
     barrier = threading.Barrier(4)
 
     def worker(index):
         directory = root / f'browser-{index}'
         directory.mkdir()
         browser_type = TraceBrowser if index == 0 else Browser
-        browser = browser_type(binary, directory, 2560, 1440, skip_force_redraw, copy_after_present)
+        browser = browser_type(binary, directory, 2560, 1440)
         try:
             if index == 0:
                 browser.send('Tracing.start', {
@@ -80,15 +80,15 @@ def run(binary: Path, root: Path, skip_force_redraw=False, copy_after_present=Fa
     groups = defaultdict(list)
     requests = {}
     completions = {}
-    reads = []
+    deliveries = []
     for event in trace['traceEvents']:
         name = event.get('name', '')
         if name in ('Mideo.CaptureRequest', 'Mideo.CaptureResult'):
             sequence = event.get('args', {}).get('sequence')
             if isinstance(sequence, int) and isinstance(event.get('ts'), (int, float)):
                 (requests if name == 'Mideo.CaptureRequest' else completions)[sequence] = event['ts']
-        if name == 'Mideo.ReadPixels' and event.get('ph') == 'X':
-            reads.append(event)
+        if name == 'Mideo.DeliverPresentedFrame' and event.get('ph') == 'X':
+            deliveries.append(event)
         if event.get('ph') != 'X' or not isinstance(event.get('dur'), (float, int)):
             continue
         if name.startswith(('Mideo.', 'SoftwareRenderer::', 'Display::', 'DirectRenderer::', 'viz::mojom::CopyOutput', 'CopyOutput')):
@@ -97,19 +97,19 @@ def run(binary: Path, root: Path, skip_force_redraw=False, copy_after_present=Fa
     timings = []
     for index, (samples, _) in enumerate(results):
         timings.append({'browser': index, 'count': len(samples), 'meanMs': round(statistics.mean(samples), 3), 'p50Ms': round(statistics.median(samples), 3), 'p95Ms': round(sorted(samples)[int(.95 * (len(samples)-1))], 3), 'samplesMs': [round(sample, 3) for sample in samples]})
-    breakdown = {'requestCount': len(requests), 'resultCount': len(completions), 'readCount': len(reads)}
-    if len(requests) == len(completions) == len(reads) == 60:
-        reads.sort(key=lambda event: event['ts'])
+    breakdown = {'requestCount': len(requests), 'resultCount': len(completions), 'deliveryCount': len(deliveries)}
+    if len(requests) == len(completions) == len(deliveries) == 60:
+        deliveries.sort(key=lambda event: event['ts'])
         segments = defaultdict(list)
         for index, sequence in enumerate(sorted(requests)):
             if index < 10:
                 continue
             requested = requests[sequence]
-            read = reads[index]
+            delivery = deliveries[index]
             completed = completions[sequence]
-            segments['requestToReadMs'].append((read['ts'] - requested) / 1000)
-            segments['readPixelsMs'].append(read['dur'] / 1000)
-            segments['readToResultMs'].append((completed - read['ts'] - read['dur']) / 1000)
+            segments['requestToDeliveryMs'].append((delivery['ts'] - requested) / 1000)
+            segments['deliveryMs'].append(delivery['dur'] / 1000)
+            segments['deliveryToResultMs'].append((completed - delivery['ts'] - delivery['dur']) / 1000)
             segments['requestToResultMs'].append((completed - requested) / 1000)
         breakdown['segments'] = {name: {'meanMs': round(statistics.mean(values), 3), 'p50Ms': round(statistics.median(values), 3), 'p95Ms': round(sorted(values)[int(.95 * (len(values)-1))], 3)} for name, values in segments.items()}
     return {'traceEvents': len(trace['traceEvents']), 'traceBytes': len(results[0][1]), 'timings': timings, 'breakdown': breakdown, 'events': rows[:35]}, gzip.compress(results[0][1], compresslevel=6)
@@ -118,12 +118,8 @@ def run(binary: Path, root: Path, skip_force_redraw=False, copy_after_present=Fa
 if __name__ == '__main__':
     binary = Path(sys.argv[1])
     output = Path(sys.argv[2])
-    skip_force_redraw = '--skip-force-redraw' in sys.argv[3:]
-    copy_after_present = '--copy-after-present' in sys.argv[3:]
-    if skip_force_redraw and copy_after_present:
-        raise SystemExit('两个截图实验不能同时启用')
     with tempfile.TemporaryDirectory(dir='/dev/shm', prefix='mideo-trace-') as folder:
-        summary, compressed = run(binary, Path(folder), skip_force_redraw, copy_after_present)
+        summary, compressed = run(binary, Path(folder))
     output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
     output.with_suffix('.json.gz').write_bytes(compressed)
     print(json.dumps(summary, ensure_ascii=False))

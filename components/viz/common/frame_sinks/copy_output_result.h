@@ -106,10 +106,6 @@ class VIZ_COMMON_EXPORT CopyOutputResult {
 
   virtual ~CopyOutputResult();
 
-  // 外部缓冲写入回执不携带位图，尺寸和错误语义保持原样。
-  bool mideo_buffer_written() const { return mideo_buffer_written_; }
-  void set_mideo_buffer_written() { mideo_buffer_written_ = true; }
-
   // Returns false if the request succeeded and the data accessors will return
   // valid references.
   bool IsEmpty() const;
@@ -246,7 +242,6 @@ class VIZ_COMMON_EXPORT CopyOutputResult {
                    bool needs_lock_for_bitmap,
                    Error error);
 
-  bool mideo_buffer_written_ = false;
   const Format format_;
   const Destination destination_;
   const gfx::Rect rect_;

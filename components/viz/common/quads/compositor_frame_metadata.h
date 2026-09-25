@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/quads/compositor_frame_transition_directive.h"
@@ -170,6 +171,10 @@ class VIZ_COMMON_EXPORT CompositorFrameMetadata {
   // TODO(crbug.com/41393200): A custom type would be better to avoid incorrect
   // comparisons.
   uint32_t frame_token = kInvalidFrameToken;
+
+  // Identifies a trusted Mideo export request that must be fulfilled from the
+  // final display canvas for this exact frame.
+  std::optional<base::UnguessableToken> mideo_frame_token;
 
   // Once the display compositor processes a frame with
   // |send_frame_token_to_embedder| flag turned on, the |frame_token| for the

@@ -5,6 +5,7 @@
 module viz.mojom;
 
 import "gpu/ipc/common/surface_handle.mojom";
+import "mojo/public/mojom/base/file.mojom";
 import "mojo/public/mojom/base/shared_memory.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
@@ -70,6 +71,13 @@ struct RootCompositorFrameSinkParams {
   // `external_begin_frame_controller` is set.
   pending_associated_remote<ExternalBeginFrameControllerClient>?
       external_begin_frame_controller_client;
+};
+
+// Receives the result only after the tagged compositor frame has been
+// presented. The pixel copy itself is performed from Viz's final display
+// canvas before the corresponding swap.
+interface MideoFrameCaptureClient {
+  OnFrameCaptured(bool success);
 };
 
 // The FrameSinkManager interface is a privileged interface that allows the
@@ -211,6 +219,18 @@ interface FrameSinkManager {
                       CopyOutputRequest request,
                       bool capture_exact_surface_id,
                       mojo_base.mojom.TimeDelta timeout);
+
+  // Arms a one-shot shared-memory delivery for a specific tagged child frame.
+  // The immediate response confirms that Viz accepted the request; completion
+  // is reported separately after presentation through `client`.
+  ArmMideoFrame(SurfaceId surface_id,
+                 mojo_base.mojom.UnguessableToken frame_token,
+                 mojo_base.mojom.File buffer_file,
+                 mojo_base.mojom.UnguessableToken buffer_id,
+                 uint64 buffer_offset,
+                 gfx.mojom.Size size,
+                 pending_remote<MideoFrameCaptureClient> client)
+      => (bool accepted);
 
   // Caches the back buffer for the |root_frame_sink_id|. The back buffer is
   // keyed using |cache_id| and evicted when EvictBackBuffer with the same id is

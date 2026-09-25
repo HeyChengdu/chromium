@@ -20,7 +20,6 @@
 #include "base/command_line.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
-#include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
@@ -41,6 +40,7 @@
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
 #include "components/back_forward_cache/disabled_reason_id.h"
+#include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "content/browser/back_forward_cache/back_forward_cache_can_store_document_result.h"
 #include "content/browser/back_forward_cache/back_forward_cache_disable.h"
 #include "content/browser/back_forward_cache/back_forward_cache_metrics.h"
@@ -106,7 +106,6 @@ namespace {
 
 constexpr const char* kMhtml = "mhtml";
 constexpr int kDefaultScreenshotQuality = 80;
-constexpr char kMideoSharedMemoryFormat[] = "mideo-shm";
 constexpr char kMideoFrameBufferSwitch[] = "mideo-frame-buffer";
 constexpr char kMideoFrameBufferSlotsSwitch[] = "mideo-frame-buffer-slots";
 constexpr int kDefaultMideoFrameBufferSlots = 3;
@@ -497,20 +496,26 @@ std::string GetFrameStartedNavigatingNavigationTypeString(
 class MideoFrameBuffer {
  public:
   static std::unique_ptr<MideoFrameBuffer> Open(base::FilePath path,
-                                               gfx::Size size, int slots) {
+                                                gfx::Size size,
+                                                int slots) {
 #if BUILDFLAG(IS_LINUX)
-    if (size.IsEmpty() || size.width() > 16384 || size.height() > 16384 || slots < 1 || slots > kMaximumMideoFrameBufferSlots)
+    if (size.IsEmpty() || size.width() > 16384 || size.height() > 16384 ||
+        slots < 1 || slots > kMaximumMideoFrameBufferSlots) {
       return nullptr;
+    }
     base::File file(path, base::File::FLAG_OPEN | base::File::FLAG_READ |
-                             base::File::FLAG_WRITE);
+                              base::File::FLAG_WRITE);
     size_t bytes;
     if (!file.IsValid() ||
         flock(file.GetPlatformFile(), LOCK_EX | LOCK_NB) != 0 ||
         !base::CheckMul(static_cast<size_t>(size.width()),
                         static_cast<size_t>(size.height()), size_t{4},
-                        static_cast<size_t>(slots)).AssignIfValid(&bytes) ||
-        file.GetLength() < 0 || static_cast<uint64_t>(file.GetLength()) != bytes)
+                        static_cast<size_t>(slots))
+             .AssignIfValid(&bytes) ||
+        file.GetLength() < 0 ||
+        static_cast<uint64_t>(file.GetLength()) != bytes) {
       return nullptr;
+    }
     auto buffer = std::make_unique<MideoFrameBuffer>();
     buffer->file_ = std::move(file);
     buffer->size_ = size;
@@ -524,30 +529,36 @@ class MideoFrameBuffer {
   bool Matches(const gfx::Size& size) const { return size_ == size; }
   std::optional<uint64_t> Reserve() {
     const size_t slot = sequence_ % occupied_.size();
-    if (occupied_[slot]) return std::nullopt;
+    if (occupied_[slot]) {
+      return std::nullopt;
+    }
     occupied_[slot] = sequence_;
     return sequence_++;
   }
   bool Release(int slot, const std::string& sequence) {
     uint64_t parsed;
     if (slot < 0 || static_cast<size_t>(slot) >= occupied_.size() ||
-        !base::StringToUint64(sequence, &parsed) || occupied_[slot] != parsed)
+        !base::StringToUint64(sequence, &parsed) || occupied_[slot] != parsed) {
       return false;
+    }
     occupied_[slot].reset();
     return true;
   }
   size_t Slot(uint64_t sequence) const { return sequence % occupied_.size(); }
-  void Attach(viz::CopyOutputRequest& request, uint64_t sequence) {
-    const uint64_t bytes = static_cast<uint64_t>(size_.width()) * size_.height() * 4;
-    request.SetMideoBuffer(file_.Duplicate(), id_, Slot(sequence) * bytes, size_);
+  base::File DuplicateFile() const { return file_.Duplicate(); }
+  const base::UnguessableToken& id() const { return id_; }
+  uint64_t Offset(uint64_t sequence) const {
+    return Slot(sequence) * static_cast<uint64_t>(size_.width()) *
+           size_.height() * 4;
   }
   std::vector<uint8_t> Metadata(uint64_t sequence) const {
     const std::string json = base::StringPrintf(
-        R"({"version":2,"slot":%zu,"sequence":"%s","width":%d,"height":%d,"stride":%d,"pixelFormat":"bgra8-unpremul","producer":"viz-software"})",
+        R"({"version":3,"slot":%zu,"sequence":"%s","width":%d,"height":%d,"stride":%d,"pixelFormat":"bgra8-unpremul","producer":"viz-presented-software"})",
         Slot(sequence), base::NumberToString(sequence).c_str(), size_.width(),
         size_.height(), size_.width() * 4);
     return std::vector<uint8_t>(json.begin(), json.end());
   }
+
  private:
   base::File file_;
   gfx::Size size_;
@@ -1487,22 +1498,6 @@ void PageHandler::CaptureScreenshot(
     return;
   }
 
-  if (format == kMideoSharedMemoryFormat) {
-    const gfx::Size size = host_->GetRenderWidgetHost()->GetView()->GetViewBounds().size();
-    if (!is_trusted_ || !may_read_local_files_ ||
-        !base::CommandLine::ForCurrentProcess()->HasSwitch(kMideoFrameBufferSwitch) ||
-        !from_surface.value_or(true) || capture_beyond_viewport.value_or(false) ||
-        (clip && (clip->GetX() != 0 || clip->GetY() != 0 ||
-                  clip->GetScale() != 1 || clip->GetWidth() != size.width() ||
-                  clip->GetHeight() != size.height()))) {
-      callback->sendFailure(Response::InvalidParams(
-          "Mideo requires trusted local capture of the unscaled full viewport"));
-      return;
-    }
-    CaptureMideoFrame(size, std::move(callback));
-    return;
-  }
-
   // Check if full page screenshot is expected and get dimensions accordingly.
   if (from_surface.value_or(true) && capture_beyond_viewport.value_or(false) &&
       !clip) {
@@ -2110,26 +2105,54 @@ Response PageHandler::ReleaseMideoFrame(int slot, const std::string& sequence) {
 }
 
 void PageHandler::CaptureMideoFrame(
-    const gfx::Size& size, std::unique_ptr<CaptureScreenshotCallback> callback) {
-  if (mideo_capture_pending_ || mideo_initializing_ || (mideo_frame_buffer_ && !mideo_frame_buffer_->Matches(size))) {
-    callback->sendFailure(Response::ServerError("Mideo initialization busy or viewport changed"));
+    std::unique_ptr<CaptureMideoFrameCallback> callback) {
+  if (!host_ || !host_->GetRenderWidgetHost() ||
+      !host_->GetRenderWidgetHost()->GetView()) {
+    callback->sendFailure(Response::InternalError());
+    return;
+  }
+  if (!CanExecuteGlobalCommands(this, callback)) {
+    return;
+  }
+  if (!is_trusted_ || !may_read_local_files_ ||
+      !base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kMideoFrameBufferSwitch)) {
+    callback->sendFailure(Response::InvalidParams(
+        "Mideo requires a trusted local shared-frame session"));
+    return;
+  }
+  CaptureMideoFrameIntoBuffer(
+      host_->GetRenderWidgetHost()->GetView()->GetViewBounds().size(),
+      std::move(callback));
+}
+
+void PageHandler::CaptureMideoFrameIntoBuffer(
+    const gfx::Size& size,
+    std::unique_ptr<CaptureMideoFrameCallback> callback) {
+  if (mideo_capture_pending_ || mideo_initializing_ ||
+      (mideo_frame_buffer_ && !mideo_frame_buffer_->Matches(size))) {
+    callback->sendFailure(
+        Response::ServerError("Mideo initialization busy or viewport changed"));
     return;
   }
   if (!mideo_frame_buffer_) {
     const auto& command = *base::CommandLine::ForCurrentProcess();
     int slots = kDefaultMideoFrameBufferSlots;
-    const auto value = command.GetSwitchValueASCII(kMideoFrameBufferSlotsSwitch);
+    const auto value =
+        command.GetSwitchValueASCII(kMideoFrameBufferSlotsSwitch);
     if (!value.empty() && !base::StringToInt(value, &slots)) {
-      callback->sendFailure(Response::InvalidParams("Invalid Mideo slot count"));
+      callback->sendFailure(
+          Response::InvalidParams("Invalid Mideo slot count"));
       return;
     }
     mideo_initializing_ = true;
     base::ThreadPool::PostTaskAndReplyWithResult(
         FROM_HERE, {base::MayBlock()},
         base::BindOnce(&MideoFrameBuffer::Open,
-                       command.GetSwitchValuePath(kMideoFrameBufferSwitch), size, slots),
-        base::BindOnce(&PageHandler::MideoBufferReady, weak_factory_.GetWeakPtr(),
-                       size, std::move(callback)));
+                       command.GetSwitchValuePath(kMideoFrameBufferSwitch),
+                       size, slots),
+        base::BindOnce(&PageHandler::MideoBufferReady,
+                       weak_factory_.GetWeakPtr(), size, std::move(callback)));
     return;
   }
   auto sequence = mideo_frame_buffer_->Reserve();
@@ -2143,43 +2166,48 @@ void PageHandler::CaptureMideoFrame(
   if (auto* wc = WebContents::FromRenderFrameHost(host_)) {
     capturer = wc->IncrementCapturerCount(gfx::Size(), true, true, false);
   }
-  auto request = std::make_unique<viz::CopyOutputRequest>(
-      viz::CopyOutputResult::Format::RGBA,
-      viz::CopyOutputResult::Destination::kSystemMemory,
+  host_->GetRenderWidgetHost()->CapturePresentedMideoFrame(
+      mideo_frame_buffer_->DuplicateFile(), mideo_frame_buffer_->id(),
+      mideo_frame_buffer_->Offset(*sequence), size,
       base::BindOnce(
           [](base::WeakPtr<PageHandler> handler, uint64_t sequence,
-             gfx::Size size, base::ScopedClosureRunner capturer,
-             std::unique_ptr<CaptureScreenshotCallback> callback,
-             std::unique_ptr<viz::CopyOutputResult> result) {
-            if (!handler) return;
+             base::ScopedClosureRunner capturer,
+             std::unique_ptr<CaptureMideoFrameCallback> callback,
+             bool success) {
+            if (!handler) {
+              return;
+            }
             TRACE_EVENT_INSTANT("viz", "Mideo.CaptureResult", "sequence",
                                 sequence);
             handler->mideo_capture_pending_ = false;
             auto& buffer = *handler->mideo_frame_buffer_;
-            if (!result->mideo_buffer_written() || result->IsEmpty() || result->size() != size) {
-              buffer.Release(buffer.Slot(sequence), base::NumberToString(sequence));
-              callback->sendFailure(Response::ServerError(
-                  "Viz shared capture failed: requires unscaled sRGB software rendering"));
+            if (!success) {
+              buffer.Release(buffer.Slot(sequence),
+                             base::NumberToString(sequence));
+              callback->sendFailure(
+                  Response::ServerError("Viz presented-frame delivery failed"));
               return;
             }
-            callback->sendSuccess(Binary::fromVector(buffer.Metadata(sequence)));
-          }, weak_factory_.GetWeakPtr(), *sequence, size, std::move(capturer),
+            callback->sendSuccess(
+                Binary::fromVector(buffer.Metadata(sequence)));
+          },
+          weak_factory_.GetWeakPtr(), *sequence, std::move(capturer),
           std::move(callback)));
-  mideo_frame_buffer_->Attach(*request, *sequence);
-  host_->GetRenderWidgetHost()->CaptureMideoFrame(std::move(request));
 }
 
 void PageHandler::MideoBufferReady(
-    const gfx::Size& size, std::unique_ptr<CaptureScreenshotCallback> callback,
+    const gfx::Size& size,
+    std::unique_ptr<CaptureMideoFrameCallback> callback,
     std::unique_ptr<MideoFrameBuffer> buffer) {
   mideo_initializing_ = false;
   if (!buffer || !host_ || !host_->GetRenderWidgetHost() ||
       !host_->GetRenderWidgetHost()->GetView()) {
-    callback->sendFailure(Response::ServerError("Cannot acquire exclusive Mideo buffer"));
+    callback->sendFailure(
+        Response::ServerError("Cannot acquire exclusive Mideo buffer"));
     return;
   }
   mideo_frame_buffer_ = std::move(buffer);
-  CaptureMideoFrame(size, std::move(callback));
+  CaptureMideoFrameIntoBuffer(size, std::move(callback));
 }
 
 Response PageHandler::StopLoading() {

@@ -4,6 +4,7 @@
 
 module viz.mojom;
 
+import "mojo/public/mojom/base/unguessable_token.mojom";
 import "services/viz/public/mojom/compositing/begin_frame_args.mojom";
 import "services/viz/public/mojom/compositing/compositor_frame_transition_directive.mojom";
 import "ui/gfx/mojom/delegated_ink_metadata.mojom";
@@ -49,6 +50,7 @@ struct CompositorFrameMetadata {
   array<SurfaceIdAndDeadline> activation_dependencies;
   BeginFrameAck begin_frame_ack;
   uint32 frame_token;
+  mojo_base.mojom.UnguessableToken? mideo_frame_token;
   bool send_frame_token_to_embedder;
   float? top_controls_visible_height;
   uint32? view_transition_deadline_in_frames;
