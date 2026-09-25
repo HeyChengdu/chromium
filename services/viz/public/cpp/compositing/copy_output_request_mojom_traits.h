@@ -9,7 +9,6 @@
 #include <optional>
 
 #include "base/types/expected.h"
-#include "mojo/public/cpp/base/file_mojom_traits.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "mojo/public/cpp/base/unguessable_token_mojom_traits.h"
 #include "mojo/public/cpp/bindings/deserialization_error.h"
@@ -61,18 +60,6 @@ struct StructTraits<viz::mojom::CopyOutputRequestDataView,
   static const std::optional<viz::BlitRequest>& blit_request(
       const std::unique_ptr<viz::CopyOutputRequest>& request) {
     return request->blit_request_;
-  }
-
-  static base::File& mideo_file(const std::unique_ptr<viz::CopyOutputRequest>& r) {
-    return r->mideo_file_;
-  }
-  static const std::optional<base::UnguessableToken>& mideo_id(
-      const std::unique_ptr<viz::CopyOutputRequest>& r) { return r->mideo_id_; }
-  static uint64_t mideo_offset(const std::unique_ptr<viz::CopyOutputRequest>& r) {
-    return r->mideo_offset_;
-  }
-  static const gfx::Size& mideo_size(const std::unique_ptr<viz::CopyOutputRequest>& r) {
-    return r->mideo_size_;
   }
 
   static mojo::PendingRemote<viz::mojom::CopyOutputResultSender> result_sender(
