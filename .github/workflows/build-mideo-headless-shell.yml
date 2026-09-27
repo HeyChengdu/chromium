@@ -87,7 +87,8 @@ jobs:
       - name: Install depot_tools
         run: |
           git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
-          depot_tools/ensure_bootstrap
+          (cd depot_tools && ./ensure_bootstrap)
+          test -f depot_tools/python3_bin_reldir.txt
           echo "$GITHUB_WORKSPACE/depot_tools" >> "$GITHUB_PATH"
 
       - name: Synchronize Chromium dependencies
