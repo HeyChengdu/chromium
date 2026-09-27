@@ -170,11 +170,15 @@ jobs:
             obj/components/viz/common/common/compositor_frame_metadata.o \
             obj/components/viz/host/host/host_frame_sink_manager.o \
             obj/components/viz/service/service/display.o \
+            obj/components/viz/service/service/skia_renderer.o \
             obj/components/viz/service/service/software_renderer.o \
             obj/components/viz/service/service/frame_sink_manager_impl.o \
             obj/components/viz/service/service/root_compositor_frame_sink_impl.o \
             obj/content/browser/browser/page_handler.o \
             obj/content/browser/browser/render_widget_host_impl.o \
+            obj/services/viz/public/mojom/mojom/compositor_frame_metadata_mojom_traits.o \
+            obj/services/viz/public/mojom/mojom/copy_output_request_mojom_traits.o \
+            obj/services/viz/public/mojom/mojom/copy_output_result_mojom_traits.o \
             obj/third_party/blink/renderer/platform/platform/widget_base.o
 
       - name: Build headless shell with six workers
