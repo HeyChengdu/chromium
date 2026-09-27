@@ -31,6 +31,10 @@ on:
         description: Chromium 候选产物的完整提交 SHA
         type: string
         default: ''
+      compile_check_only:
+        description: 仅编译本次 Mideo 改动对象，快速检查 C++/Mojo 错误
+        type: boolean
+        default: false
   push:
     branches: [mideo-raw-frame-capture]
 
@@ -152,12 +156,29 @@ jobs:
         run: gn desc out/Mideo '//v8:v8_base_without_compiler(//build/toolchain/linux:clang_x64)' --format=json > ../build-diagnostics/v8-compile-flags.json
 
       - name: Record inputs for resumable build
+        if: ${{ inputs.compile_check_only != true }}
         working-directory: src
         run: |
           mkdir -p ../checkpoint
           python3 ../controller/tools/mideo/checkpoint.py snapshot ../checkpoint/inputs.json.gz
 
+      - name: Compile changed Mideo objects
+        if: ${{ inputs.compile_check_only == true }}
+        working-directory: src
+        run: |
+          autoninja -C out/Mideo -j 6 \
+            obj/components/viz/common/common/compositor_frame_metadata.o \
+            obj/components/viz/host/host/host_frame_sink_manager.o \
+            obj/components/viz/service/service/display.o \
+            obj/components/viz/service/service/software_renderer.o \
+            obj/components/viz/service/service/frame_sink_manager_impl.o \
+            obj/components/viz/service/service/root_compositor_frame_sink_impl.o \
+            obj/content/browser/browser/page_handler.o \
+            obj/content/browser/browser/render_widget_host_impl.o \
+            obj/third_party/blink/renderer/platform/platform/widget_base.o
+
       - name: Build headless shell with six workers
+        if: ${{ inputs.compile_check_only != true }}
         id: build
         working-directory: src
         run: |
@@ -201,6 +222,7 @@ jobs:
           exit 1
 
       - name: Package runtime
+        if: ${{ inputs.compile_check_only != true }}
         working-directory: src
         run: |
           mkdir -p artifact/locales
@@ -214,6 +236,7 @@ jobs:
           tar -C artifact -czf mideo-headless-shell-linux-x64.tar.gz .
 
       - uses: actions/upload-artifact@v4
+        if: ${{ inputs.compile_check_only != true }}
         with:
           name: candidate-headless-shell-${{ env.BUILD_COMMIT }}
           path: src/mideo-headless-shell-linux-x64.tar.gz
@@ -223,7 +246,7 @@ jobs:
       - name: Collect final resource usage
         if: always()
         run: |
-          { free -h; df -h; du -sh src/out src/third_party 2>/dev/null || true; } > build-diagnostics/resources-final.txt
+          { free -h; df -h; timeout 120s du -sh src/out src/third_party 2>/dev/null || true; } > build-diagnostics/resources-final.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -235,7 +258,7 @@ jobs:
           retention-days: 14
 
   media:
-    if: ${{ inputs.profile_only != true }}
+    if: ${{ inputs.profile_only != true && inputs.compile_check_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -253,6 +276,7 @@ jobs:
           retention-days: 14
 
   verify:
+    if: ${{ inputs.compile_check_only != true }}
     needs: [linux-x64, media]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
