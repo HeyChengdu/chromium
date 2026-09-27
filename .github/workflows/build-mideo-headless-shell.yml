@@ -53,6 +53,7 @@ jobs:
     timeout-minutes: 360
     env:
       BUILD_COMMIT: ${{ inputs.build_commit || github.sha }}
+      DEPOT_TOOLS_UPDATE: 0
     steps:
       - name: Record resources and reclaim hosted runner disk
         run: |
