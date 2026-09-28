@@ -136,9 +136,13 @@ void SoftwareRenderer::FinishDrawingFrame() {
   TRACE_EVENT0("viz", "SoftwareRenderer::FinishDrawingFrame");
   if (pending_mideo_frame_) {
     TRACE_EVENT("viz", "Mideo.DeliverPresentedFrame");
-    mideo_frame_result_ =
-        WriteMideoFrame(root_canvas_, std::move(*pending_mideo_frame_));
+    MideoFrameRequest request = std::move(*pending_mideo_frame_);
     pending_mideo_frame_.reset();
+    base::OnceCallback<void(bool)> completion_callback =
+        std::move(request.completion_callback);
+    const bool success =
+        WriteMideoFrame(root_canvas_, std::move(request));
+    std::move(completion_callback).Run(success);
   }
   // `current_canvas_` may be pointing to `current_framebuffer_canvas_`. Make
   // sure to reset it before destroying `current_framebuffer_canvas_`.
@@ -151,14 +155,12 @@ void SoftwareRenderer::FinishDrawingFrame() {
   root_canvas_ = nullptr;
 }
 
-void SoftwareRenderer::ArmMideoFrame(MideoFrameRequest request) {
-  CHECK(!pending_mideo_frame_);
-  CHECK(!mideo_frame_result_);
+bool SoftwareRenderer::ArmMideoFrame(MideoFrameRequest request) {
+  if (pending_mideo_frame_) {
+    return false;
+  }
   pending_mideo_frame_ = std::move(request);
-}
-
-std::optional<bool> SoftwareRenderer::TakeMideoFrameResult() {
-  return std::exchange(mideo_frame_result_, std::nullopt);
+  return true;
 }
 
 bool SoftwareRenderer::WriteMideoFrame(SkCanvas* canvas,

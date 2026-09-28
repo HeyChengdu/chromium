@@ -8,7 +8,6 @@
 #include <memory>
 #include <optional>
 
-#include "base/files/file.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/memory/raw_ptr.h"
 #include "base/unguessable_token.h"
@@ -33,13 +32,6 @@ class TileDrawQuad;
 
 class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
  public:
-  struct MideoFrameRequest {
-    base::File buffer_file;
-    base::UnguessableToken buffer_id;
-    uint64_t buffer_offset = 0;
-    gfx::Size size;
-  };
-
   SoftwareRenderer(const RendererSettings* settings,
                    const DebugRendererSettings* debug_settings,
                    OutputSurface* output_surface,
@@ -52,8 +44,7 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
   ~SoftwareRenderer() override;
 
   void SwapBuffers(SwapFrameData swap_frame_data) override;
-  void ArmMideoFrame(MideoFrameRequest request);
-  std::optional<bool> TakeMideoFrameResult();
+  bool ArmMideoFrame(MideoFrameRequest request) override;
 
  protected:
   bool CanPartialSwap() override;
@@ -96,7 +87,6 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
   std::unique_ptr<base::MemoryMappedFile> mideo_mapping_;
   base::UnguessableToken mideo_mapping_id_;
   std::optional<MideoFrameRequest> pending_mideo_frame_;
-  std::optional<bool> mideo_frame_result_;
   struct RenderPassBitmapBacking {
     SkBitmap bitmap;
     gfx::Rect drawn_rect;

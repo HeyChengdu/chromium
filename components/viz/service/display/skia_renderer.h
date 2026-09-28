@@ -65,6 +65,7 @@ class VIZ_SERVICE_EXPORT SkiaRenderer : public DirectRenderer {
   void SwapBuffersComplete(const gpu::SwapBuffersCompleteParams& params,
                            gfx::GpuFenceHandle release_fence) override;
   void BuffersPresented() override;
+  bool ArmMideoFrame(MideoFrameRequest request) override;
   void DidReceiveReleasedOverlays(
       const std::vector<gpu::Mailbox>& released_overlays) override;
 

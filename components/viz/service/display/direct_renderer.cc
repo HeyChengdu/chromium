@@ -79,6 +79,11 @@ DirectRenderer::DrawingFrame::~DrawingFrame() = default;
 
 DirectRenderer::SwapFrameData::SwapFrameData() = default;
 DirectRenderer::SwapFrameData::~SwapFrameData() = default;
+
+bool DirectRenderer::ArmMideoFrame(MideoFrameRequest) {
+  return false;
+}
+
 DirectRenderer::SwapFrameData::SwapFrameData(SwapFrameData&&) = default;
 DirectRenderer::SwapFrameData& DirectRenderer::SwapFrameData::operator=(
     SwapFrameData&&) = default;

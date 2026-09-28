@@ -172,7 +172,11 @@ jobs:
           autoninja -C out/Mideo -j 6 \
             obj/components/viz/common/common/compositor_frame_metadata.o \
             obj/components/viz/host/host/host_frame_sink_manager.o \
+            obj/components/viz/service/service/direct_renderer.o \
             obj/components/viz/service/service/display.o \
+            obj/components/viz/service/service/skia_output_surface.o \
+            obj/components/viz/service/service/skia_output_surface_impl.o \
+            obj/components/viz/service/service/skia_output_surface_impl_on_gpu.o \
             obj/components/viz/service/service/skia_renderer.o \
             obj/components/viz/service/service/software_renderer.o \
             obj/components/viz/service/service/frame_sink_manager_impl.o \

@@ -14,4 +14,8 @@ SkiaOutputSurface* SkiaOutputSurface::AsSkiaOutputSurface() {
   return this;
 }
 
+bool SkiaOutputSurface::ArmMideoFrame(MideoFrameRequest) {
+  return false;
+}
+
 }  // namespace viz

@@ -122,6 +122,7 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   // SkiaOutputSurface implementation:
   SkCanvas* BeginPaintCurrentFrame() override;
   void SwapBuffersSkipped(const gfx::Rect root_pass_damage_rect) override;
+  bool ArmMideoFrame(MideoFrameRequest request) override;
 
   SkCanvas* BeginPaintRenderPass(const AggregatedRenderPassId& id,
                                  const gfx::Size& surface_size,
@@ -357,6 +358,7 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
 
   // This holds current paint info
   std::optional<ScopedPaint> current_paint_;
+  std::optional<MideoFrameRequest> pending_mideo_frame_;
 
   // The SkDDL recorder is used for overdraw feedback. It is created by
   // BeginPaintOverdraw, and FinishPaintCurrentFrame will turn it into a SkDDL

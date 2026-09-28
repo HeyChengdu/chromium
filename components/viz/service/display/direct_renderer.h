@@ -13,8 +13,11 @@
 
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
+#include "base/files/file.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/quads/tile_draw_quad.h"
@@ -31,6 +34,7 @@
 #include "ui/gfx/geometry/axis_transform2d.h"
 #include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence_handle.h"
 #include "ui/latency/latency_info.h"
 
@@ -59,6 +63,14 @@ struct RenderPassGeometry;
 // for reference).
 class VIZ_SERVICE_EXPORT DirectRenderer {
  public:
+  struct MideoFrameRequest {
+    base::File buffer_file;
+    base::UnguessableToken buffer_id;
+    uint64_t buffer_offset = 0;
+    gfx::Size size;
+    base::OnceCallback<void(bool)> completion_callback;
+  };
+
   DirectRenderer(const RendererSettings* settings,
                  const DebugRendererSettings* debug_settings,
                  OutputSurface* output_surface,
@@ -130,6 +142,7 @@ class VIZ_SERVICE_EXPORT DirectRenderer {
   virtual void SwapBuffersComplete(const gpu::SwapBuffersCompleteParams& params,
                                    gfx::GpuFenceHandle release_fence) {}
   virtual void BuffersPresented() {}
+  virtual bool ArmMideoFrame(MideoFrameRequest request);
   virtual void DidReceiveReleasedOverlays(
       const std::vector<gpu::Mailbox>& released_overlays) {}
 

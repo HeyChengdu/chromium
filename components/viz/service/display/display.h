@@ -17,6 +17,7 @@
 #include "base/functional/callback_forward.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "base/task/single_thread_task_runner.h"
@@ -305,11 +306,16 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
     uint64_t buffer_offset = 0;
     gfx::Size size;
     base::OnceCallback<void(bool)> completion_callback;
+    bool copy_scheduled = false;
     bool copied = false;
+    bool presented = false;
     int64_t swap_trace_id = 0;
   };
 
   bool PendingMideoFrameIsInAggregatedFrame() const;
+  void OnMideoFrameCopied(const base::UnguessableToken& frame_token,
+                          bool success);
+  void MaybeCompleteMideoFrame();
   void CompleteMideoFrame(bool success);
 
   void InitializeRenderer();
@@ -366,9 +372,6 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   // `renderer_` depends on `overlay_processor_` and `resource_provider_`. It
   // must be declared last and destroyed first.
   std::unique_ptr<DirectRenderer> renderer_;
-  // `software_renderer_` depends on `renderer_`. It must be declared last and
-  // cleared first.
-  raw_ptr<SoftwareRenderer> software_renderer_ = nullptr;
   std::vector<ui::LatencyInfo> stored_latency_info_;
   std::unique_ptr<OcclusionCuller> occlusion_culler_;
   std::unique_ptr<OverdrawTracker> overdraw_tracker_;
@@ -387,6 +390,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   base::OneShotTimer mideo_frame_timeout_;
 
   uint64_t frame_sequence_number_ = 0;
+  base::WeakPtrFactory<Display> weak_ptr_factory_{this};
 };
 
 }  // namespace viz

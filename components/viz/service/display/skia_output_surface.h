@@ -5,11 +5,15 @@
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_SKIA_OUTPUT_SURFACE_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_SKIA_OUTPUT_SURFACE_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "base/files/file.h"
+#include "base/functional/callback.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/resources/resource_id.h"
@@ -21,6 +25,7 @@
 #include "gpu/vulkan/buildflags.h"
 #include "media/gpu/buildflags.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence_handle.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -52,6 +57,14 @@ struct RenderPassGeometry;
 class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
                                              public ExternalUseClient {
  public:
+  struct MideoFrameRequest {
+    base::File buffer_file;
+    base::UnguessableToken buffer_id;
+    uint64_t buffer_offset = 0;
+    gfx::Size size;
+    base::OnceCallback<void(bool)> completion_callback;
+  };
+
   using OverlayList = std::vector<OverlayCandidate>;
 
   SkiaOutputSurface();
@@ -62,6 +75,8 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
   ~SkiaOutputSurface() override;
 
   SkiaOutputSurface* AsSkiaOutputSurface() override;
+
+  virtual bool ArmMideoFrame(MideoFrameRequest request);
 
   // Begin painting the current frame. This method will create a
   // GrDeferredDisplayListRecorder and return a SkCanvas of it.

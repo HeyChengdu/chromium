@@ -531,11 +531,9 @@ void Display::InitializeRenderer() {
     auto resource_provider = std::make_unique<DisplayResourceProviderSoftware>(
         shared_image_manager_, gpu_scheduler_);
     DCHECK(!overlay_processor_->IsOverlaySupported());
-    auto renderer = std::make_unique<SoftwareRenderer>(
+    renderer_ = std::make_unique<SoftwareRenderer>(
         &settings_, debug_settings_, output_surface_.get(),
         resource_provider.get(), overlay_processor_.get());
-    software_renderer_ = renderer.get();
-    renderer_ = std::move(renderer);
     resource_provider_ = std::move(resource_provider);
   }
 
@@ -949,8 +947,7 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
         "Compositing.Display.Draw.Occlusion.Calculation.Time",
         draw_occlusion_timer.Elapsed().InMicroseconds());
 
-    DBG_LOG("renderer.ptr", "renderer = %p%s", this,
-            renderer_.get() == software_renderer_ ? " (software)" : "");
+    DBG_LOG("renderer.ptr", "renderer = %p", renderer_.get());
 
     if (overdraw_tracker_) {
       overdraw_tracker_->EstimateAndRecordOverdraw(&frame,
@@ -962,30 +959,30 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     draw_timer.emplace();
     overlay_processor_->SetFrameSequenceNumber(frame_sequence_number_);
     overlay_processor_->SetIsPageFullscreen(frame.page_fullscreen_mode);
-    bool mideo_frame_armed = false;
-    if (pending_mideo_frame_ && !pending_mideo_frame_->copied &&
-        software_renderer_ && PendingMideoFrameIsInAggregatedFrame()) {
-      software_renderer_->ArmMideoFrame(SoftwareRenderer::MideoFrameRequest{
-          .buffer_file = std::move(pending_mideo_frame_->buffer_file),
-          .buffer_id = pending_mideo_frame_->buffer_id,
-          .buffer_offset = pending_mideo_frame_->buffer_offset,
-          .size = pending_mideo_frame_->size,
-      });
-      mideo_frame_armed = true;
+    if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled &&
+        PendingMideoFrameIsInAggregatedFrame()) {
+      const base::UnguessableToken frame_token =
+          pending_mideo_frame_->frame_token;
+      const bool armed = renderer_->ArmMideoFrame(
+          DirectRenderer::MideoFrameRequest{
+              .buffer_file = std::move(pending_mideo_frame_->buffer_file),
+              .buffer_id = pending_mideo_frame_->buffer_id,
+              .buffer_offset = pending_mideo_frame_->buffer_offset,
+              .size = pending_mideo_frame_->size,
+              .completion_callback =
+                  base::BindOnce(&Display::OnMideoFrameCopied,
+                                 weak_ptr_factory_.GetWeakPtr(), frame_token),
+          });
+      if (!armed) {
+        CompleteMideoFrame(false);
+      } else {
+        pending_mideo_frame_->copy_scheduled = true;
+      }
     }
     renderer_->DrawFrame(&frame.render_pass_list, device_scale_factor_,
                          current_surface_size, display_color_spaces_,
                          std::move(frame.surface_damage_rect_list_),
                          frame.tracked_element_rects);
-    if (mideo_frame_armed) {
-      const std::optional<bool> result =
-          software_renderer_->TakeMideoFrameResult();
-      if (!result.value_or(false)) {
-        CompleteMideoFrame(false);
-      } else {
-        pending_mideo_frame_->copied = true;
-      }
-    }
     TRACE_EVENT_END("viz,benchmark", perfetto::NamedTrack("Graphics.Pipeline",
                                                           display_trace_id));
   } else {
@@ -1094,7 +1091,7 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
         current_surface_id_.local_surface_id().parent_sequence_number();
     swap_frame_data.choreographer_vsync_id = params.choreographer_vsync_id;
     swap_frame_data.swap_trace_id = display_trace_id;
-    if (pending_mideo_frame_ && pending_mideo_frame_->copied &&
+    if (pending_mideo_frame_ && pending_mideo_frame_->copy_scheduled &&
         pending_mideo_frame_->swap_trace_id == 0) {
       pending_mideo_frame_->swap_trace_id = display_trace_id;
     }
@@ -1157,7 +1154,7 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
       renderer_->SwapBuffersSkipped();
     }
 
-    if (pending_mideo_frame_ && pending_mideo_frame_->copied) {
+    if (pending_mideo_frame_ && pending_mideo_frame_->copy_scheduled) {
       CompleteMideoFrame(false);
     }
 
@@ -1402,9 +1399,10 @@ void Display::DidReceivePresentationFeedback(
   }
 
   presentation_group_timing.OnPresent(copy_feedback);
-  if (pending_mideo_frame_ && pending_mideo_frame_->copied &&
+  if (pending_mideo_frame_ && pending_mideo_frame_->copy_scheduled &&
       pending_mideo_frame_->swap_trace_id == presented_trace_id) {
-    CompleteMideoFrame(true);
+    pending_mideo_frame_->presented = true;
+    MaybeCompleteMideoFrame();
   }
   if (scheduler_) {
     scheduler_->OnPresentationFeedback(
@@ -1454,7 +1452,7 @@ bool Display::ArmMideoFrame(
     uint64_t buffer_offset,
     const gfx::Size& size,
     base::OnceCallback<void(bool)> completion_callback) {
-  if (pending_mideo_frame_ || !software_renderer_ ||
+  if (pending_mideo_frame_ || !renderer_ ||
       !target_surface_id.is_valid() || frame_token.is_empty() ||
       buffer_id.is_empty() || !buffer_file.IsValid() || size.IsEmpty() ||
       size != current_surface_size_) {
@@ -1473,6 +1471,28 @@ bool Display::ArmMideoFrame(
                              base::BindOnce(&Display::CompleteMideoFrame,
                                             base::Unretained(this), false));
   return true;
+}
+
+void Display::OnMideoFrameCopied(
+    const base::UnguessableToken& frame_token,
+    bool success) {
+  if (!pending_mideo_frame_ ||
+      pending_mideo_frame_->frame_token != frame_token) {
+    return;
+  }
+  if (!success) {
+    CompleteMideoFrame(false);
+    return;
+  }
+  pending_mideo_frame_->copied = true;
+  MaybeCompleteMideoFrame();
+}
+
+void Display::MaybeCompleteMideoFrame() {
+  if (pending_mideo_frame_ && pending_mideo_frame_->copied &&
+      pending_mideo_frame_->presented) {
+    CompleteMideoFrame(true);
+  }
 }
 
 bool Display::PendingMideoFrameIsInAggregatedFrame() const {

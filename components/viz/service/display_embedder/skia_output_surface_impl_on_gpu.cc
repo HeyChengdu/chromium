@@ -463,18 +463,37 @@ void SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame(
     sk_sp<GrDeferredDisplayList> overdraw_ddl,
     std::unique_ptr<skgpu::graphite::Recording> graphite_recording,
     std::vector<raw_ptr<ImageContextImpl, VectorExperimental>> image_contexts,
+    std::optional<SkiaOutputSurface::MideoFrameRequest> mideo_frame,
     base::OnceClosure on_finished,
     base::OnceCallback<void(gfx::GpuFenceHandle)> return_release_fence_cb) {
   TRACE_EVENT0("viz", "SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame");
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(!scoped_output_device_paint_);
 
+  auto complete_mideo_frame = [&](bool draw_succeeded) {
+    if (!mideo_frame) {
+      return;
+    }
+    base::OnceCallback<void(bool)> completion_callback =
+        std::move(mideo_frame->completion_callback);
+    const bool success =
+        draw_succeeded &&
+        WriteMideoFrame(scoped_output_device_paint_
+                            ? scoped_output_device_paint_->GetCanvas()
+                            : nullptr,
+                        std::move(*mideo_frame));
+    mideo_frame.reset();
+    std::move(completion_callback).Run(success);
+  };
+
   if (context_is_lost_) {
+    complete_mideo_frame(false);
     return;
   }
 
   if (!ddl && !graphite_recording) {
     MarkContextLost(CONTEXT_LOST_UNKNOWN);
+    complete_mideo_frame(false);
     return;
   }
 
@@ -487,6 +506,7 @@ void SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame(
     // We want to figure out why beginning a write access can fail.
     base::debug::DumpWithoutCrashing();
     MarkContextLost(ContextLostReason::CONTEXT_LOST_BEGIN_PAINT_FAILED);
+    complete_mideo_frame(false);
     return;
   }
 
@@ -502,6 +522,7 @@ void SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame(
     if (!draw_success) {
       draw_render_pass_failed_ = true;
     }
+    complete_mideo_frame(draw_success);
     return;
   }
 
@@ -535,6 +556,8 @@ void SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame(
       DrawOverdraw(std::move(overdraw_ddl),
                    *scoped_output_device_paint_->GetCanvas());
     }
+
+    complete_mideo_frame(draw_success);
 
     auto end_paint_semaphores =
         scoped_output_device_paint_->TakeEndPaintSemaphores();
@@ -587,6 +610,39 @@ void SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame(
       return_release_fence_cb.Reset();
     }
   }
+}
+
+bool SkiaOutputSurfaceImplOnGpu::WriteMideoFrame(
+    SkCanvas* canvas,
+    SkiaOutputSurface::MideoFrameRequest request) {
+  if (!canvas || request.size.IsEmpty() ||
+      canvas->imageInfo().width() != request.size.width() ||
+      canvas->imageInfo().height() != request.size.height() ||
+      !canvas->imageInfo().colorSpace() ||
+      !canvas->imageInfo().colorSpace()->isSRGB()) {
+    return false;
+  }
+  const uint64_t stride = static_cast<uint64_t>(request.size.width()) * 4;
+  const uint64_t bytes = stride * static_cast<uint64_t>(request.size.height());
+  if (!mideo_mapping_ || mideo_mapping_id_ != request.buffer_id) {
+    auto mapping = std::make_unique<base::MemoryMappedFile>();
+    if (!mapping->Initialize(std::move(request.buffer_file),
+                             base::MemoryMappedFile::READ_WRITE)) {
+      return false;
+    }
+    mideo_mapping_ = std::move(mapping);
+    mideo_mapping_id_ = request.buffer_id;
+  }
+  if (request.buffer_offset > mideo_mapping_->length() ||
+      bytes > mideo_mapping_->length() - request.buffer_offset) {
+    return false;
+  }
+  auto destination =
+      mideo_mapping_->mutable_bytes().subspan(request.buffer_offset, bytes);
+  const SkImageInfo info = SkImageInfo::Make(
+      request.size.width(), request.size.height(), kBGRA_8888_SkColorType,
+      kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
+  return canvas->readPixels(info, destination.data(), stride, 0, 0);
 }
 
 void SkiaOutputSurfaceImplOnGpu::SwapBuffers(OutputSurfaceFrame frame) {

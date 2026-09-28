@@ -387,6 +387,15 @@ SkiaOutputSurfaceImpl::~SkiaOutputSurfaceImpl() {
                         gpu::SyncToken());
 }
 
+bool SkiaOutputSurfaceImpl::ArmMideoFrame(MideoFrameRequest request) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (pending_mideo_frame_) {
+    return false;
+  }
+  pending_mideo_frame_ = std::move(request);
+  return true;
+}
+
 gpu::SurfaceHandle SkiaOutputSurfaceImpl::GetSurfaceHandle() const {
   return dependency_->GetSurfaceHandle();
 }
@@ -917,7 +926,9 @@ void SkiaOutputSurfaceImpl::EndPaint(
         &SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame,
         base::Unretained(impl_on_gpu_.get()), std::move(ddl),
         std::move(overdraw_ddl), std::move(graphite_recording),
-        std::move(images_in_current_paint_), std::move(on_finished),
+        std::move(images_in_current_paint_),
+        std::exchange(pending_mideo_frame_, std::nullopt),
+        std::move(on_finished),
         std::move(return_release_fence_cb));
     EnqueueGpuTask(std::move(task), std::move(resource_sync_tokens_),
                    /*make_current=*/true, /*need_framebuffer=*/true);

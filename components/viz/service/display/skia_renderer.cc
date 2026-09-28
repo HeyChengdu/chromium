@@ -1135,6 +1135,19 @@ SkiaRenderer::SkiaRenderer(const RendererSettings* settings,
 
 SkiaRenderer::~SkiaRenderer() = default;
 
+bool SkiaRenderer::ArmMideoFrame(MideoFrameRequest request) {
+  return skia_output_surface_->ArmMideoFrame(
+      SkiaOutputSurface::MideoFrameRequest{
+          .buffer_file = std::move(request.buffer_file),
+          .buffer_id = request.buffer_id,
+          .buffer_offset = request.buffer_offset,
+          .size = request.size,
+          .completion_callback = base::BindPostTask(
+              base::SingleThreadTaskRunner::GetCurrentDefault(),
+              std::move(request.completion_callback)),
+      });
+}
+
 bool SkiaRenderer::CanPartialSwap() {
   return output_surface_->capabilities().supports_post_sub_buffer;
 }

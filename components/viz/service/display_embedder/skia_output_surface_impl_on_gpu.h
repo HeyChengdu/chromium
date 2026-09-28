@@ -15,6 +15,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/files/memory_mapped_file.h"
 #include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -29,6 +30,7 @@
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display/output_surface_frame.h"
 #include "components/viz/service/display/overlay_processor_interface.h"
+#include "components/viz/service/display/skia_output_surface.h"
 #include "components/viz/service/display_embedder/skia_output_device.h"
 #include "components/viz/service/display_embedder/skia_output_surface_dependency.h"
 #include "components/viz/service/display_embedder/skia_render_copy_results.h"
@@ -163,6 +165,7 @@ class SkiaOutputSurfaceImplOnGpu
       sk_sp<GrDeferredDisplayList> overdraw_ddl,
       std::unique_ptr<skgpu::graphite::Recording> graphite_recording,
       std::vector<raw_ptr<ImageContextImpl, VectorExperimental>> image_contexts,
+      std::optional<SkiaOutputSurface::MideoFrameRequest> mideo_frame,
       base::OnceClosure on_finished,
       base::OnceCallback<void(gfx::GpuFenceHandle)> return_release_fence_cb);
   void SwapBuffers(OutputSurfaceFrame frame);
@@ -307,6 +310,9 @@ class SkiaOutputSurfaceImplOnGpu
       CopyOutputRequest::CopyOutputRequestCallback result_callback);
 
  private:
+  bool WriteMideoFrame(SkCanvas* canvas,
+                       SkiaOutputSurface::MideoFrameRequest request);
+
   struct MailboxAccessData {
     MailboxAccessData();
     MailboxAccessData(MailboxAccessData&& other);
@@ -575,6 +581,8 @@ class SkiaOutputSurfaceImplOnGpu
 
   std::unique_ptr<SkiaOutputDevice> output_device_;
   std::unique_ptr<SkiaOutputDevice::ScopedPaint> scoped_output_device_paint_;
+  std::unique_ptr<base::MemoryMappedFile> mideo_mapping_;
+  base::UnguessableToken mideo_mapping_id_;
 
   // Cache of SkiaImageRepresentations for each render pass mailbox so we don't
   // need to recreate them if they are reused on future frames. Entries are
