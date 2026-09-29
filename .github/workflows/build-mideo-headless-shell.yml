@@ -162,6 +162,11 @@ jobs:
         working-directory: src
         run: gn desc out/Mideo '//v8:v8_base_without_compiler(//build/toolchain/linux:clang_x64)' --format=json > ../build-diagnostics/v8-compile-flags.json
 
+      - name: Check Mideo test target before compilation
+        if: ${{ inputs.compile_check_only == true }}
+        working-directory: src
+        run: gn desc out/Mideo //components/viz/service:mideo_software_output_device_unittests --format=json > ../build-diagnostics/mideo-test-target.json
+
       - name: Record inputs for resumable build
         if: ${{ inputs.compile_check_only != true }}
         working-directory: src

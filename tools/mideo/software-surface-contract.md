@@ -31,6 +31,12 @@
 `mideo_software_output_device_unittests`，验证启用前默认格式、启用后 Alpha、
 重复请求保留内容、Resize 和其他普通设备的隔离。
 
+运行 `36543112892` 已完成 7023/7023 个生产编译及生成任务，但测试步骤报
+`unknown target`，尚未执行断言。原因是 `.gn` 的 `root_patterns` 只保留
+headless_shell 依赖图，排除了独立单测。现将该测试精确加入根模式，并在
+生产编译前执行 `gn desc` 校验目标；不把测试加成浏览器的运行时依赖。
+根模式行为见 [GN 官方说明](https://gn.googlesource.com/gn/+/main/docs/reference.md#dotfile)。
+
 完整候选继续执行 `shared_frame_buffer_smoke.py`。新增冷帧先共享交付再与 PNG
 逐字节比较，并与独立的、未启用共享导出的普通 PNG 会话比较首帧，避免两条
 路径一起改变画面后相互印证。还检查明确的半透明红色和透明背景；关闭后不能出现 blocking

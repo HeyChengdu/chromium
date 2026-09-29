@@ -468,6 +468,9 @@ expand_directory_allowlist =
       "//components/policy/BUILD.gn",
     ]
 
-# Mideo fork 仅生成 headless 运行时；gn desc 与生成阶段必须使用相同入口。
+# Mideo fork 仅生成 headless 运行时及软件画布契约测试；所有 GN 查询共用入口。
 root = "//headless:headless_shell"
-root_patterns = [ "//headless:headless_shell" ]
+root_patterns = [
+  "//headless:headless_shell",
+  "//components/viz/service:mideo_software_output_device_unittests",
+]
