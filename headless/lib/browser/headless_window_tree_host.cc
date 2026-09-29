@@ -6,12 +6,15 @@
 
 #include <memory>
 
+#include "base/command_line.h"
 #include "base/containers/flat_set.h"
 #include "base/notimplemented.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "headless/lib/browser/headless_focus_client.h"
 #include "headless/lib/browser/headless_window_parenting_client.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/compositor.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 
 namespace headless {
@@ -19,6 +22,11 @@ namespace headless {
 HeadlessWindowTreeHost::HeadlessWindowTreeHost(
     bool use_external_begin_frame_control) {
   CreateCompositor(false, use_external_begin_frame_control);
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch("mideo-frame-buffer")) {
+    // 导出页自身决定背景与 Alpha，外层合成器不得再叠加默认白底。
+    // 在首个合成帧前配置，避免逐帧切换与 renderer 标记帧发生竞态。
+    compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
+  }
   OnAcceleratedWidgetAvailable();
 
   focus_client_ = std::make_unique<HeadlessFocusClient>();

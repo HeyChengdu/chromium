@@ -179,6 +179,7 @@ jobs:
         working-directory: src
         run: |
           autoninja -C out/Mideo -j 6 \
+            obj/headless/headless_browser/headless_window_tree_host.o \
             obj/components/viz/common/common/compositor_frame_metadata.o \
             obj/components/viz/host/host/host_frame_sink_manager.o \
             obj/components/viz/service/service/direct_renderer.o \

@@ -21,7 +21,7 @@ from PIL import Image
 import websocket
 
 class Browser:
-    def __init__(self, binary, directory, width, height):
+    def __init__(self, binary, directory, width, height, mideo=True):
         self.width, self.height = width, height
         self.frame_bytes = width * height * 4
         self.path = directory / 'frames.bgra'
@@ -29,12 +29,14 @@ class Browser:
         self.file.truncate(self.frame_bytes * 3)
         self.mapping = mmap.mmap(self.file.fileno(), 0)
         self.log = (directory / 'browser.log').open('w+')
-        self.process = subprocess.Popen([
+        command = [
             str(binary), '--headless', '--disable-gpu', '--no-sandbox',
             '--force-color-profile=srgb', '--remote-debugging-port=0',
             '--remote-allow-origins=*', f'--window-size={width},{height}',
-            f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3',
-            'about:blank'], stdout=subprocess.DEVNULL, stderr=self.log)
+            'about:blank']
+        if mideo:
+            command[1:1] = [f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3']
+        self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=self.log)
         self.socket = None
         self.request_id = 0
         try:
@@ -116,7 +118,7 @@ def quality(binary, ffmpeg, directory):
         # 独立会话从未启用导出画布，防止两条路径同时改变画面后相互印证。
         reference_directory = directory / 'ordinary-reference'
         reference_directory.mkdir()
-        reference = Browser(binary, reference_directory, 640, 360)
+        reference = Browser(binary, reference_directory, 640, 360, mideo=False)
         try:
             reference.update(0)
             reference_png = base64.b64decode(reference.capture('png')['data'])
@@ -188,9 +190,12 @@ def quality(binary, ffmpeg, directory):
         # 明确包含透明和半透明像素，防止两个路径都错误地变成 opaque 后假通过。
         browser.evaluate("document.body.innerHTML='<div style=\"position:fixed;left:0;top:0;width:16px;height:16px;background:rgba(255,0,0,0.5)\"></div>'")
         meta, actual = browser.shared()
+        Image.frombytes('RGBA', (640,360), actual, 'raw', 'BGRA').save(directory/'alpha-shared.png')
+        png = base64.b64decode(browser.capture('png')['data'])
+        (directory/'alpha-baseline.png').write_bytes(png)
+        (directory/'alpha-pixels.json').write_text(json.dumps(dict(firstBGRA=list(actual[:4]), lastBGRA=list(actual[-4:]))))
         assert actual[:4] == bytes((0, 0, 255, 128)), '半透明像素未按非预乘 BGRA 交付'
         assert actual[-4:] == bytes(4), '透明背景被压成不透明'
-        png = base64.b64decode(browser.capture('png')['data'])
         assert actual == Image.open(io.BytesIO(png)).convert('RGBA').tobytes('raw','BGRA')
         browser.release(meta)
         return dict(pixelExact=True, encodedPixelExact=True, frames=36, backpressure=True, alphaExact=True)
@@ -242,7 +247,7 @@ def main():
             evidence = args.report.parent / 'verification'
             evidence.mkdir(exist_ok=True)
             for file in root.rglob('*'):
-                if file.suffix in ('.png', '.mp4', '.log'):
+                if file.suffix in ('.png', '.mp4', '.log', '.json'):
                     shutil.copy2(file, evidence / (file.parent.name + '-' + file.name))
             args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
             print(json.dumps(report, ensure_ascii=False))

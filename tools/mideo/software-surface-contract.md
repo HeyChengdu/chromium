@@ -58,3 +58,20 @@ Ninja 最终完成 3580/3580 并成功打包。验收已执行到半透明像素
 记录透明场景首个共享帧、随后 PNG、PNG 后共享帧与两次 rAF 后共享帧的
 首尾 BGRA、全帧 Alpha 分布及图像，并分别检查首次启用和不透明帧之后切换。
 这些预热对照只用于区分问题来源，不改变正式门禁或允许截图回退。
+
+诊断运行 `36644069640` 复用该二进制，证明冷启动和切换后共享帧的 Alpha
+均为 255；PNG 则为红色 `[0,0,255,128]` 与透明背景 `[0,0,0,0]`。
+PNG 预热和两次 rAF 后共享帧仍不透明，排除单纯等待不足。
+
+沿实际合成链路审计：`HeadlessWindowTreeHost` 创建外层 `ui::Compositor`；
+`cc::CommitState::background_color` 默认为白色；
+`LayerTreeHostImpl::CalculateRenderPasses` 将不透明根背景标记到根 render pass
+并填充背景；`SoftwareRenderer::ClearFramebuffer` 仅对透明 pass 清透明色。
+因此只修正最终 SkSurface 的 Alpha 格式仍无法恢复已被外层合成压平的信息。
+
+本次仅为显式带 `--mideo-frame-buffer` 的 headless 导出进程，在首个合成帧前
+将外层 compositor 背景设为透明，页面自身的背景保持由页面渲染。未带该开关
+的普通会话保留默认白底。正式门禁的普通 PNG 基线改为真正不传导出开关的
+独立会话；Alpha 断言保持原值，同时在断言前保存共享帧、PNG 与实际首尾像素。
+定向门禁加入 headless_window_tree_host 生产对象，总计 19 个；静态检查
+不能证明该修复成功，仍须先通过定向编译与软件画布单测，再重做完整验收。
