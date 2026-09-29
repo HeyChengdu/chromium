@@ -58,6 +58,7 @@ jobs:
     env:
       BUILD_COMMIT: ${{ inputs.build_commit || github.sha }}
       DEPOT_TOOLS_UPDATE: 0
+      DEPOT_TOOLS_COMMIT: b2042c50e4d8a0ecc69ebc60983024a5b477c4ca
     steps:
       - name: Record resources and reclaim hosted runner disk
         run: |
@@ -90,7 +91,15 @@ jobs:
 
       - name: Install depot_tools
         run: |
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
+          # 固定经 Gitiles 确认存在的提交，避免远端 HEAD 广告与对象不一致。
+          git init depot_tools
+          git -C depot_tools remote add origin https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          git -C depot_tools -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 fetch --depth=1 origin "$DEPOT_TOOLS_COMMIT"
+          git -C depot_tools cat-file -e "$DEPOT_TOOLS_COMMIT^{commit}"
+          git -C depot_tools checkout --detach "$DEPOT_TOOLS_COMMIT"
+          test "$(git -C depot_tools rev-parse HEAD)" = "$DEPOT_TOOLS_COMMIT"
+          git -C depot_tools fsck --connectivity-only
+          git -C depot_tools rev-parse HEAD > build-diagnostics/depot-tools-commit.txt
           (cd depot_tools && ./ensure_bootstrap)
           test -f depot_tools/python3_bin_reldir.txt
           echo "$GITHUB_WORKSPACE/depot_tools" >> "$GITHUB_PATH"
