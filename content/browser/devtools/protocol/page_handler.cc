@@ -495,6 +495,17 @@ std::string GetFrameStartedNavigatingNavigationTypeString(
 
 class MideoFrameBuffer {
  public:
+  ~MideoFrameBuffer() {
+    if (file_.IsValid()) {
+      // CDP 会话在 UI 线程销毁，关闭文件及释放独占锁需要允许阻塞的线程。
+      base::ThreadPool::PostTask(
+          FROM_HERE,
+          {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
+          base::BindOnce([](base::File file) { file.Close(); },
+                         std::move(file_)));
+    }
+  }
+
   static std::unique_ptr<MideoFrameBuffer> Open(base::FilePath path,
                                                 gfx::Size size,
                                                 int slots) {

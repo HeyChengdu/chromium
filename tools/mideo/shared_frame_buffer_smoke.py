@@ -113,11 +113,28 @@ def quality(binary, ffmpeg, directory):
     frames = []
     metadata = []
     try:
+        # 独立会话从未启用导出画布，防止两条路径同时改变画面后相互印证。
+        reference_directory = directory / 'ordinary-reference'
+        reference_directory.mkdir()
+        reference = Browser(binary, reference_directory, 640, 360)
+        try:
+            reference.update(0)
+            reference_png = base64.b64decode(reference.capture('png')['data'])
+            (directory/'ordinary-reference.png').write_bytes(reference_png)
+            ordinary_expected = Image.open(io.BytesIO(reference_png)).convert('RGBA').tobytes('raw', 'BGRA')
+        finally:
+            reference.close()
         # 不释放时占满三个槽，第四次必须失败且不能覆盖前面任一槽。
         for n in range(3):
             browser.update(n)
             meta, data = browser.shared()
             metadata.append(meta); frames.append(data)
+            if n == 0:
+                assert data == ordinary_expected, '启用导出画布改变了普通 PNG 渲染结果'
+            # 冷启动和首次切换输出画布时也必须整帧一致，不依赖 PNG 预热。
+            png = base64.b64decode(browser.capture('png')['data'])
+            expected = Image.open(io.BytesIO(png)).convert('RGBA').tobytes('raw', 'BGRA')
+            assert data == expected, f'首次交付 {n}: PNG 与 Viz BGRA 不一致'
         before = bytes(browser.mapping)
         browser.capture(fail=True)
         assert bytes(browser.mapping) == before
@@ -168,12 +185,18 @@ def quality(binary, ffmpeg, directory):
         # 透明背景验证非预乘 Alpha；PNG 仍作为同构建基线。
         browser.send('Emulation.setDefaultBackgroundColorOverride', dict(color=dict(r=0,g=0,b=0,a=0)))
         browser.evaluate("document.body.style.background='transparent'")
-        png = base64.b64decode(browser.capture('png')['data'])
+        # 明确包含透明和半透明像素，防止两个路径都错误地变成 opaque 后假通过。
+        browser.evaluate("document.body.innerHTML='<div style=\"position:fixed;left:0;top:0;width:16px;height:16px;background:rgba(255,0,0,0.5)\"></div>'")
         meta, actual = browser.shared()
+        assert actual[:4] == bytes((0, 0, 255, 128)), '半透明像素未按非预乘 BGRA 交付'
+        assert actual[-4:] == bytes(4), '透明背景被压成不透明'
+        png = base64.b64decode(browser.capture('png')['data'])
         assert actual == Image.open(io.BytesIO(png)).convert('RGBA').tobytes('raw','BGRA')
         browser.release(meta)
         return dict(pixelExact=True, encodedPixelExact=True, frames=36, backpressure=True, alphaExact=True)
-    finally: browser.close()
+    finally:
+        browser.close()
+        assert 'DCHECK failed: !tls_blocking_disallowed' not in (directory/'browser.log').read_text(), '关闭导出会话时发生阻塞线程 DCHECK'
 
 
 def benchmark(binary, directory):
