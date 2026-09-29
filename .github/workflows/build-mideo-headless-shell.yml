@@ -35,6 +35,10 @@ on:
         description: 仅编译本次 Mideo 改动对象，快速检查 C++/Mojo 错误
         type: boolean
         default: false
+      diagnose_delivery_only:
+        description: 仅复用 profile_run/profile_commit 候选定位交付失败，不编译
+        type: boolean
+        default: false
   push:
     branches: [mideo-raw-frame-capture]
 
@@ -48,7 +52,7 @@ permissions:
 
 jobs:
   linux-x64:
-    if: ${{ inputs.media_only != true && inputs.profile_only != true }}
+    if: ${{ inputs.media_only != true && inputs.profile_only != true && inputs.diagnose_delivery_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -269,7 +273,7 @@ jobs:
           retention-days: 14
 
   media:
-    if: ${{ inputs.profile_only != true && inputs.compile_check_only != true }}
+    if: ${{ inputs.profile_only != true && inputs.compile_check_only != true && inputs.diagnose_delivery_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -338,6 +342,52 @@ jobs:
             runtime/verification/
           if-no-files-found: warn
           retention-days: 14
+
+  diagnose-delivery:
+    if: ${{ inputs.diagnose_delivery_only == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - name: Fetch compiled candidate for failure diagnosis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.profile_run }}
+          SOURCE_COMMIT: ${{ inputs.profile_commit }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re, subprocess
+          run_id, commit = os.environ['SOURCE_RUN'], os.environ['SOURCE_COMMIT']
+          assert run_id.isdigit() and re.fullmatch('[0-9a-f]{40}', commit)
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}']))
+          assert run['head_sha'] == commit and run['status'] == 'completed'
+          # 诊断验收失败的候选：要求编译成功，不把整个运行视为验收通过。
+          jobs = json.loads(subprocess.check_output(['gh', 'api', f'repos/HeyChengdu/chromium/actions/runs/{run_id}/jobs']))['jobs']
+          assert any(job['name'] == 'linux-x64' and job['conclusion'] == 'success' for job in jobs)
+          subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'HeyChengdu/chromium',
+                          '--name', f'candidate-headless-shell-{commit}', '--dir', 'candidate'], check=True)
+          PYTHON
+          mkdir -p runtime
+          tar -xzf candidate/mideo-headless-shell-linux-x64.tar.gz -C runtime
+          test "$(cat runtime/chromium-commit.txt)" = "$SOURCE_COMMIT"
+          chmod +x runtime/headless_shell
+      - name: Trace bounded presented-frame failure cases
+        timeout-minutes: 8
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 fonts-noto-cjk
+          python3 -m venv .venv
+          .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
+          .venv/bin/python tools/mideo/diagnose_presented_frame.py "$PWD/runtime/headless_shell" runtime/diagnosis
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-delivery-diagnosis-${{ github.run_id }}
+          path: runtime/diagnosis/
+          if-no-files-found: warn
+          retention-days: 7
 
   profile:
     if: ${{ inputs.profile_only == true }}
