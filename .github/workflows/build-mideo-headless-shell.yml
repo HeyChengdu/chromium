@@ -183,6 +183,7 @@ jobs:
             obj/components/viz/service/service/skia_output_surface_impl_on_gpu.o \
             obj/components/viz/service/service/skia_renderer.o \
             obj/components/viz/service/service/software_renderer.o \
+            obj/components/viz/service/service/software_output_device.o \
             obj/components/viz/service/service/frame_sink_manager_impl.o \
             obj/components/viz/service/service/root_compositor_frame_sink_impl.o \
             obj/content/browser/browser/page_handler.o \
@@ -191,6 +192,13 @@ jobs:
             obj/services/viz/public/mojom/mojom/copy_output_request_mojom_traits.o \
             obj/services/viz/public/mojom/mojom/copy_output_result_mojom_traits.o \
             obj/third_party/blink/renderer/platform/platform/widget_base.o
+
+      - name: Test Mideo software Surface contract
+        if: ${{ inputs.compile_check_only == true }}
+        working-directory: src
+        run: |
+          autoninja -C out/Mideo -j 6 mideo_software_output_device_unittests
+          out/Mideo/mideo_software_output_device_unittests --test-launcher-jobs=1 --gtest_filter=SoftwareOutputDeviceMideoTest.*
 
       - name: Build headless shell with six workers
         if: ${{ inputs.compile_check_only != true }}

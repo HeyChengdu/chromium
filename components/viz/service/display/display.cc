@@ -843,6 +843,11 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     // aggregated again so that the trail exists for a single frame.
     target_damage_bounding_rect.Union(
         renderer_->GetDelegatedInkTrailDamageRect());
+    // 首次软件导出会重建最终画布；必须在聚合裁剪之前保留整帧内容。
+    // 标记请求真正进入聚合前可能出现其他帧，不能只在 Arm 时设置一次。
+    if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled) {
+      aggregator_->SetFullDamageForSurface(current_surface_id_);
+    }
     frame = aggregator_->Aggregate(
         current_surface_id_, params.expected_display_time,
         current_display_transform, target_damage_bounding_rect,

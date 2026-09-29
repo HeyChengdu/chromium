@@ -50,6 +50,11 @@ class VIZ_SERVICE_EXPORT SoftwareOutputDevice {
   // |SoftwareOutputDevice| can be used in other ways.
   virtual void Resize(const gfx::Size& pixel_size, float scale_factor);
 
+  // 仅 Mideo 请求启用基类栅格画布的 sRGB/Alpha 契约。首次切换会丢弃
+  // 旧画布，调用者必须在聚合前标记完整损伤，并在读回前完整重绘。
+  // 不使用基类栅格画布的平台设备返回 false，保持原有输出路径。
+  bool EnableMideoFrameOutput();
+
   // Called on BeginDrawingFrame. The compositor will draw into the returned
   // SkCanvas. The |SoftwareOutputDevice| implementation needs to provide a
   // valid SkCanvas of at least size |damage_rect|. This class retains ownership
@@ -95,6 +100,9 @@ class VIZ_SERVICE_EXPORT SoftwareOutputDevice {
   gfx::Rect damage_rect_;
   sk_sp<SkSurface> surface_;
   std::unique_ptr<gfx::VSyncProvider> vsync_provider_;
+
+ private:
+  bool mideo_frame_output_ = false;
 };
 
 }  // namespace viz

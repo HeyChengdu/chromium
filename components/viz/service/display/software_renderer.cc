@@ -156,7 +156,7 @@ void SoftwareRenderer::FinishDrawingFrame() {
 }
 
 bool SoftwareRenderer::ArmMideoFrame(MideoFrameRequest request) {
-  if (pending_mideo_frame_) {
+  if (pending_mideo_frame_ || !output_device_->EnableMideoFrameOutput()) {
     return false;
   }
   pending_mideo_frame_ = std::move(request);
@@ -168,6 +168,7 @@ bool SoftwareRenderer::WriteMideoFrame(SkCanvas* canvas,
   if (!canvas || request.size.IsEmpty() ||
       canvas->imageInfo().width() != request.size.width() ||
       canvas->imageInfo().height() != request.size.height() ||
+      canvas->imageInfo().alphaType() != kPremul_SkAlphaType ||
       !canvas->imageInfo().colorSpace() ||
       !canvas->imageInfo().colorSpace()->isSRGB()) {
     return false;

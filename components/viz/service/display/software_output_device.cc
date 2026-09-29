@@ -37,12 +37,36 @@ void SoftwareOutputDevice::Resize(const gfx::Size& viewport_pixel_size,
   if (viewport_pixel_size_ == viewport_pixel_size)
     return;
 
-  SkImageInfo info =
-      SkImageInfo::MakeN32(viewport_pixel_size.width(),
-                           viewport_pixel_size.height(), kOpaque_SkAlphaType);
+  const SkImageInfo info =
+      mideo_frame_output_
+          ? SkImageInfo::MakeN32Premul(viewport_pixel_size.width(),
+                                     viewport_pixel_size.height(),
+                                     SkColorSpace::MakeSRGB())
+          : SkImageInfo::MakeN32(viewport_pixel_size.width(),
+                                viewport_pixel_size.height(),
+                                kOpaque_SkAlphaType);
   viewport_pixel_size_ = viewport_pixel_size;
   SkSurfaceProps props = skia::LegacyDisplayGlobals::GetSkSurfaceProps();
   surface_ = SkSurfaces::Raster(info, &props);
+}
+
+bool SoftwareOutputDevice::EnableMideoFrameOutput() {
+  if (!surface_) {
+    return false;
+  }
+  if (mideo_frame_output_) {
+    return true;
+  }
+  const SkImageInfo info = SkImageInfo::MakeN32Premul(
+      viewport_pixel_size_.width(), viewport_pixel_size_.height(),
+      SkColorSpace::MakeSRGB());
+  auto surface = SkSurfaces::Raster(info, &surface_->props());
+  if (!surface) {
+    return false;
+  }
+  surface_ = std::move(surface);
+  mideo_frame_output_ = true;
+  return true;
 }
 
 SkCanvas* SoftwareOutputDevice::BeginPaint(const gfx::Rect& damage_rect) {
