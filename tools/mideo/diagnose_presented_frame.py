@@ -4,11 +4,14 @@ import argparse
 import base64
 from collections import Counter
 import gzip
+import io
 import json
 from pathlib import Path
 import shutil
 import tempfile
 import time
+
+from PIL import Image
 
 from trace_shared_frame import TraceBrowser
 
@@ -62,6 +65,53 @@ def diagnose(binary, output, preparation):
         return report
 
 
+def diagnose_alpha(binary, output, prior_opaque):
+    """固定半透明场景记录原始像素，不将预热后的结果视为冷帧通过。"""
+    name = 'alpha-after-opaque' if prior_opaque else 'alpha-cold'
+    with tempfile.TemporaryDirectory(prefix='mideo-alpha-', dir='/dev/shm') as temp:
+        browser = TraceBrowser(binary, Path(temp), 640, 360)
+        report = {'case': name, 'diagnosticOnly': True, 'captures': []}
+        def record(label, data):
+            report['captures'].append({
+                'label': label, 'firstBGRA': list(data[:4]),
+                'lastBGRA': list(data[-4:]),
+                'alphaCounts': dict(Counter(data[3::4])),
+            })
+            Image.frombytes('RGBA', (640, 360), data, 'raw', 'BGRA').save(
+                output / f'{name}-{label}.png')
+        def shared(label):
+            meta, data = browser.shared()
+            try:
+                record(label, data)
+            finally:
+                browser.release(meta)
+        try:
+            if prior_opaque:
+                # 复现门禁在不透明连续帧及同步 DOM 检查后的切换。
+                browser.update(0)
+                shared('opaque')
+                browser.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mideo-freshness\" style=\"position:fixed;inset:0;z-index:2147483647\"></div>')")
+                for color in ('#123456', '#e85a20', '#2879c1', '#c43be0'):
+                    browser.evaluate(f"document.querySelector('#mideo-freshness').style.backgroundColor='{color}'")
+                    shared('fresh-' + color[1:])
+                browser.evaluate("document.querySelector('#mideo-freshness').remove()")
+            browser.send('Emulation.setDefaultBackgroundColorOverride', dict(color=dict(r=0,g=0,b=0,a=0)))
+            browser.evaluate("document.body.style.background='transparent'")
+            browser.evaluate("document.body.innerHTML='<div style=\"position:fixed;left:0;top:0;width:16px;height:16px;background:rgba(255,0,0,0.5)\"></div>'")
+            shared('first-shared')
+            png = base64.b64decode(browser.capture('png')['data'])
+            record('png', Image.open(io.BytesIO(png)).convert('RGBA').tobytes('raw', 'BGRA'))
+            shared('after-png')
+            browser.evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+            shared('after-raf')
+        except Exception as error:
+            report['error'] = str(error)
+        finally:
+            browser.close()
+            shutil.copy2(Path(temp) / 'browser.log', output / f'{name}.browser.log')
+        return report
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('binary', type=Path)
@@ -70,6 +120,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     reports = [diagnose(args.binary, args.output, preparation)
                for preparation in ('cold', 'animation-frames', 'png')]
+    reports.extend(diagnose_alpha(args.binary, args.output, prior_opaque)
+                   for prior_opaque in (False, True))
     data = json.dumps(reports, ensure_ascii=False, indent=2) + '\n'
     (args.output / 'diagnosis.json').write_text(data)
     print(data)
