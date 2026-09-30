@@ -21,7 +21,7 @@ from PIL import Image
 import websocket
 
 class Browser:
-    def __init__(self, binary, directory, width, height, mideo=True):
+    def __init__(self, binary, directory, width, height, mideo=True, window_size=None):
         self.width, self.height = width, height
         self.frame_bytes = width * height * 4
         self.path = directory / 'frames.bgra'
@@ -29,10 +29,11 @@ class Browser:
         self.file.truncate(self.frame_bytes * 3)
         self.mapping = mmap.mmap(self.file.fileno(), 0)
         self.log = (directory / 'browser.log').open('w+')
+        window_width, window_height = window_size or (width, height)
         command = [
             str(binary), '--headless', '--disable-gpu', '--no-sandbox',
             '--force-color-profile=srgb', '--remote-debugging-port=0',
-            '--remote-allow-origins=*', f'--window-size={width},{height}',
+            '--remote-allow-origins=*', f'--window-size={window_width},{window_height}',
             'about:blank']
         if mideo:
             command[1:1] = [f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3']

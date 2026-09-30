@@ -161,9 +161,9 @@ def diagnose_dpr(binary, output, dpr, buffer_width, buffer_height):
 
 
 
-def diagnose_physical_viewport(binary, output):
+def diagnose_physical_viewport(binary, output, logical_window=False, resize_root=False):
     """保持 CSS 视口和 DPR，仅显式设置合成视口，并与独立普通截图比较。"""
-    name = 'dpr-2-physical-viewport'
+    name = 'dpr-2-physical-viewport' + ('-logical-window' if logical_window else '') + ('-resize-root' if resize_root else '')
     report = {'case': name, 'diagnosticOnly': True, 'frames': []}
     with tempfile.TemporaryDirectory(prefix='mideo-viewport-', dir='/dev/shm') as temp:
         root = Path(temp)
@@ -172,10 +172,17 @@ def diagnose_physical_viewport(binary, output):
             for label, mideo in (('shared', True), ('reference', False)):
                 directory = root / label
                 directory.mkdir()
-                browser = TraceBrowser(binary, directory, 2560, 1440, mideo=mideo)
+                browser = TraceBrowser(binary, directory, 2560, 1440, mideo=mideo,
+                                       window_size=(1280, 720) if logical_window else None)
                 browsers.append(browser)
                 params = dict(width=1280, height=720, deviceScaleFactor=2, mobile=False)
                 if mideo:
+                    window = browser.send('Browser.getWindowForTarget')
+                    report['initialWindow'] = window['bounds']
+                    if resize_root:
+                        browser.send('Browser.setWindowBounds', dict(
+                            windowId=window['windowId'], bounds=dict(width=2560, height=1440)))
+                    report['captureWindow'] = browser.send('Browser.getWindowForTarget')['bounds']
                     params['viewport'] = dict(x=0, y=0, width=1280, height=720, scale=1)
                 browser.send('Emulation.setDeviceMetricsOverride', params)
                 report[label + 'DOM'] = browser.send('Runtime.evaluate', dict(
@@ -230,7 +237,8 @@ def main():
                    for prior_opaque in (False, True))
     reports.extend(diagnose_dpr(args.binary, args.output, dpr, width, height)
                    for dpr, width, height in ((1, 1280, 720), (2, 2560, 1440), (2, 1280, 720)))
-    reports.append(diagnose_physical_viewport(args.binary, args.output))
+    reports.extend(diagnose_physical_viewport(args.binary, args.output, logical_window, resize_root)
+                   for logical_window, resize_root in ((False, False), (True, False), (True, True)))
     data = json.dumps(reports, ensure_ascii=False, indent=2) + '\n'
     (args.output / 'diagnosis.json').write_text(data)
     print(data)

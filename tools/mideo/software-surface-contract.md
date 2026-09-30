@@ -108,3 +108,11 @@ DPR2 + 1280×720 文件能交付，但 metadata 为 1280×720，普通 PNG 为 2
 仅替换 CDP 的尺寸查询不能产生缺失的物理像素。下一对照通过现有
 `Emulation.setDeviceMetricsOverride.viewport` 固定物理合成视口，同时保留
 1280×720 CSS 视口和 DPR2，与独立未开启 Mideo 的普通 PNG 逐字节比较。
+
+课程接入 `36735664645` 在缓冲区打开之后报 `Viz presented-frame delivery failed`，
+尚无课程像素结果。成功的 Python 诊断以物理尺寸启动窗口，而 Playwright
+`_updateViewport` 会把外层窗口设置为逻辑尺寸；Emulation 只更新子视图，
+`HeadlessPlatformDelegate::SetWebContentsBounds` 才同时更新 RootWindow。
+`Display::ArmMideoFrame` 仍要求请求尺寸等于外层 `current_surface_size_`。
+新增同二进制对照：从逻辑窗口启动，分别保持原窗口、通过 Browser.setWindowBounds
+改为物理窗口，再设置相同 Emulation viewport；记录窗口边界和独立 PNG 像素结果。
