@@ -129,3 +129,36 @@ DPR2 + 1280×720 文件能交付，但 metadata 为 1280×720，普通 PNG 为 2
 一致；同场景在 `36734926461` 曾全部一致。尚不能确定差异原因，也不能将
 本次诊断整体宣称为像素通过。保留原始图片、JSON 和严格课程哈希门禁；
 当前结果只能支持外层尺寸是交付失败的原因，不能证明课程或所有场景已保真。
+
+
+## 2026-09-30 整课质量与构建性能归因
+
+MagicTutor `36785592923` 的五组完整受控旁白时间线均为 2239 帧：受管 145 PNG、
+候选 156 PNG、候选共享、受管禁 GPU PNG、候选默认参数 PNG。全部逐帧哈希精确
+相同，测试通过；工作流只在制品配额步骤失败。六个 gzip 已从原始日志恢复并验证
+长度与 SHA256，独立逐帧复核位于 `/tmp/mideo-full-validation-36785592923`。
+这是 videoOnly 受控旁白课程，不能混称生产真实音频验收。
+
+五组墙钟依次为 413.897、694.087、579.539、405.728、698.197 秒。共享比同候选
+PNG 缩短 16.503%，但仍比受管 PNG 慢约 40%。禁 GPU 参数不能解释本轮主要差距，
+标签不证明实际 GPU 后端。页面推进累计受管约 204–209 秒、候选约 447–456 秒；
+普通 PNG 抓帧约 151–158 秒接近，阶段有嵌套，不能相加推导总墙钟。
+
+从已成功构建 `36712286102` 的 `v8-compile-flags.json` 核实：虽然使用 `-O3` 和
+`NDEBUG`，仍包含 `DCHECK_ALWAYS_ON=1`、`DEBUG`、`CPPGC_VERIFY_HEAP`、
+`V8_VERIFY_WRITE_BARRIERS`、`V8_ENABLE_DEBUG_CODE` 等调试宏。
+`build/config/dcheck_always_on.gni` 对非 official 构建默认启用 DCHECK 与昂贵检查，
+`build/config/BUILDCONFIG.gn` 明确指出仅 `is_debug=false` 不等于发布性能配置。
+这提供下一项单变量构建对照，尚未证明全部回退均由此导致。
+
+工作流显式设置 `dcheck_always_on=false`、`enable_expensive_dchecks=false`；其余
+编译优化、PGO、并发和资源参数不变，避免同时引入 LTO 或其他优化混杂。保存实际
+`args.gn` 和 V8 编译宏，并在编译前要求 `NDEBUG` 存在、`DEBUG`／
+`DCHECK_ALWAYS_ON` 不存在。`MideoFrameBuffer::Open/Reserve/Release`、
+`Display::ArmMideoFrame` 与 `SoftwareRenderer::WriteMideoFrame` 的尺寸、独占锁、
+槽序列、映射范围、sRGB／premul 检查均为普通条件判断，未修改或放宽；普通 CHECK
+仍保留。已通过的带 DCHECK 二进制与证据保留。
+
+新提交必须先在 Actions 通过 19 个生产对象定向编译及软件 Surface 单测，再从新
+源码 SHA 完整构建，不跨 SHA 复用旧 checkpoint。随后重跑原始像素、Alpha、背压、
+同步 DOM、编码及完整课程逐帧和墙钟验收；当前只提出构建对照，不能宣布性能已修复。
