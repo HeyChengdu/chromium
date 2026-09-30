@@ -4,6 +4,7 @@ import argparse
 import base64
 from collections import Counter
 import gzip
+import fcntl
 import io
 import json
 from pathlib import Path
@@ -112,6 +113,52 @@ def diagnose_alpha(binary, output, prior_opaque):
         return report
 
 
+
+def diagnose_dpr(binary, output, dpr, buffer_width, buffer_height):
+    """对照逻辑窗口与物理文件尺寸；小文件只用于定位，绝不作为输出降级。"""
+    name = f'dpr-{dpr}-buffer-{buffer_width}x{buffer_height}'
+    with tempfile.TemporaryDirectory(prefix='mideo-dpr-', dir='/dev/shm') as temp:
+        browser = TraceBrowser(binary, Path(temp), buffer_width, buffer_height)
+        report = {'case': name, 'diagnosticOnly': True,
+                  'logicalSize': [1280, 720], 'dpr': dpr,
+                  'bufferSize': [buffer_width, buffer_height],
+                  'bufferBytes': browser.path.stat().st_size}
+        try:
+            browser.send('Emulation.setDeviceMetricsOverride', dict(
+                width=1280, height=720, deviceScaleFactor=dpr, mobile=False))
+            browser.update(0)
+            report['dom'] = browser.send('Runtime.evaluate', dict(
+                expression='({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})',
+                returnByValue=True))['result']['value']
+            # 首次 CDP 请求之前探测并立即释放锁，区分锁竞争与长度校验拒绝。
+            with browser.path.open('r+b') as probe:
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                report['exclusiveLockAvailableBeforeCapture'] = True
+                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+            try:
+                meta, data = browser.shared()
+                try:
+                    report['captureSucceeded'] = True
+                    report['metadata'] = meta
+                    Image.frombytes('RGBA', (buffer_width, buffer_height), data,
+                                    'raw', 'BGRA').save(output / f'{name}-shared.png')
+                finally:
+                    browser.release(meta)
+            except Exception as error:
+                report['captureSucceeded'] = False
+                report['error'] = str(error)
+            # 共享调用已完成或拒绝后才取 PNG，不能用 PNG 预热掩盖首帧问题。
+            png = base64.b64decode(browser.capture('png')['data'])
+            (output / f'{name}-reference.png').write_bytes(png)
+            report['pngSize'] = list(Image.open(io.BytesIO(png)).size)
+        except Exception as error:
+            report['diagnosticError'] = str(error)
+        finally:
+            browser.close()
+            shutil.copy2(Path(temp) / 'browser.log', output / f'{name}.browser.log')
+        return report
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('binary', type=Path)
@@ -122,6 +169,8 @@ def main():
                for preparation in ('cold', 'animation-frames', 'png')]
     reports.extend(diagnose_alpha(args.binary, args.output, prior_opaque)
                    for prior_opaque in (False, True))
+    reports.extend(diagnose_dpr(args.binary, args.output, dpr, width, height)
+                   for dpr, width, height in ((1, 1280, 720), (2, 2560, 1440), (2, 1280, 720)))
     data = json.dumps(reports, ensure_ascii=False, indent=2) + '\n'
     (args.output / 'diagnosis.json').write_text(data)
     print(data)
