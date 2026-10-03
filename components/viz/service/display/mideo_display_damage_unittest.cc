@@ -52,6 +52,7 @@ class MideoDisplayDamageTest : public testing::Test {
     device_ = device.get();
     RendererSettings settings;
     settings.partial_swap_enabled = true;
+    settings.auto_resize_output_surface = true;
     display_ = std::make_unique<Display>(
         &images_, &gpu_scheduler_, settings, &debug_settings_, sink_, nullptr,
         std::make_unique<FakeSoftwareOutputSurface>(std::move(device)),
@@ -59,6 +60,7 @@ class MideoDisplayDamageTest : public testing::Test {
     display_->SetVisible(true);
     display_->Initialize(&client_, manager_.surface_manager());
     allocator_.GenerateId();
+    child_allocator_.GenerateId();
     display_->SetLocalSurfaceId(allocator_.GetCurrentLocalSurfaceId(), 1.f);
     display_->Resize(gfx::Size(100, 100));
     Submit(old_token_, gfx::Rect(100, 100));
@@ -86,21 +88,64 @@ class MideoDisplayDamageTest : public testing::Test {
   }
 
   void Arm() {
+    Arm(SurfaceId(sink_, allocator_.GetCurrentLocalSurfaceId()));
+  }
+
+  void Arm(const SurfaceId& target) {
     base::File file(directory_.GetPath().AppendASCII("frame"),
                     base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_READ |
                         base::File::FLAG_WRITE);
     ASSERT_TRUE(file.IsValid());
     ASSERT_TRUE(file.SetLength(100 * 100 * 4));
     ASSERT_TRUE(display_->ArmMideoFrame(
-        SurfaceId(sink_, allocator_.GetCurrentLocalSurfaceId()), target_token_,
+        target, target_token_,
         std::move(file), base::UnguessableToken::Create(), 0, gfx::Size(100, 100),
         base::BindOnce([](bool) {})));
+  }
+
+  SurfaceId ChildId() const {
+    return SurfaceId(child_sink_, child_allocator_.GetCurrentLocalSurfaceId());
+  }
+
+  void SubmitChild(const base::UnguessableToken& token,
+                   const gfx::Rect& damage) {
+    auto frame = CompositorFrameBuilder()
+                     .AddRenderPass(RenderPassBuilder(gfx::Size(100, 100))
+                                        .AddSolidColorQuad(gfx::Rect(100, 100),
+                                                           SkColors::kBlue)
+                                        .SetDamageRect(damage))
+                     .Build();
+    frame.metadata.mideo_frame_token = token;
+    child_support_.SubmitCompositorFrame(
+        child_allocator_.GetCurrentLocalSurfaceId(), std::move(frame));
+  }
+
+  void SubmitEmbedded(const std::vector<SurfaceRange>& ranges,
+                      const gfx::Rect& damage) {
+    RenderPassBuilder pass(gfx::Size(100, 100));
+    for (const auto& range : ranges) {
+      pass.AddSurfaceQuad(gfx::Rect(100, 100), range);
+    }
+    pass.SetDamageRect(damage);
+    support_.SubmitCompositorFrame(
+        allocator_.GetCurrentLocalSurfaceId(),
+        CompositorFrameBuilder().AddRenderPass(pass).Build());
+  }
+
+  void PrepareEmbedded() {
+    SubmitChild(old_token_, gfx::Rect(100, 100));
+    SubmitEmbedded({SurfaceRange(ChildId())}, gfx::Rect(100, 100));
+    Draw();
+    ASSERT_EQ(device_->damage(), gfx::Rect(100, 100));
   }
 
   base::test::TaskEnvironment environment_;
   const FrameSinkId sink_{61, 1};
   FrameSinkManagerImpl manager_{FrameSinkManagerImpl::InitParams()};
   CompositorFrameSinkSupport support_{nullptr, &manager_, sink_, true};
+  const FrameSinkId child_sink_{61, 2};
+  CompositorFrameSinkSupport child_support_{nullptr, &manager_, child_sink_,
+                                          false};
   gpu::SharedImageManager images_;
   gpu::SyncPointManager sync_;
   gpu::Scheduler gpu_scheduler_{&sync_};
@@ -109,6 +154,7 @@ class MideoDisplayDamageTest : public testing::Test {
   DebugRendererSettings debug_settings_;
   DamageClient client_;
   ParentLocalSurfaceIdAllocator allocator_;
+  ParentLocalSurfaceIdAllocator child_allocator_;
   base::ScopedTempDir directory_;
   const base::UnguessableToken old_token_ = base::UnguessableToken::Create();
   const base::UnguessableToken target_token_ = base::UnguessableToken::Create();
@@ -141,6 +187,135 @@ TEST_F(MideoDisplayDamageTest, OrdinaryFrameKeepsNormalDamage) {
   Submit(old_token_, partial);
   Draw();
   EXPECT_EQ(device_->damage(), partial);
+}
+
+TEST_F(MideoDisplayDamageTest, EmbeddedOldTokenKeepsNormalDamage) {
+  PrepareEmbedded();
+  Arm(ChildId());
+  const gfx::Rect partial(10, 10, 1, 1);
+  SubmitChild(old_token_, partial);
+  SubmitEmbedded({SurfaceRange(ChildId())}, partial);
+  Draw();
+  EXPECT_EQ(device_->damage(), partial);
+}
+
+TEST_F(MideoDisplayDamageTest, EmbeddedArrivedTokenReconstructsFullFrame) {
+  PrepareEmbedded();
+  Arm(ChildId());
+  SubmitChild(target_token_, gfx::Rect(10, 10, 1, 1));
+  SubmitEmbedded({SurfaceRange(ChildId())}, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+  EXPECT_EQ(device_->ReadbackForTesting().getColor(99, 99), SK_ColorBLUE);
+}
+
+TEST_F(MideoDisplayDamageTest, UnknownTokenKeepsFullDamage) {
+  Arm();
+  Submit(base::UnguessableToken(), gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, MissingTargetKeepsFullDamage) {
+  Arm(ChildId());
+  Submit(old_token_, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, NewRootIdKeepsFullDamage) {
+  Arm();
+  allocator_.GenerateId();
+  display_->SetLocalSurfaceId(allocator_.GetCurrentLocalSurfaceId(), 1.f);
+  Submit(old_token_, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, NewEmbeddedIdKeepsFullDamage) {
+  PrepareEmbedded();
+  Arm(ChildId());
+  child_allocator_.GenerateId();
+  SubmitChild(old_token_, gfx::Rect(10, 10, 1, 1));
+  SubmitEmbedded({SurfaceRange(ChildId())}, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, RangeFallbackKeepsFullDamage) {
+  PrepareEmbedded();
+  const SurfaceId old_id = ChildId();
+  ParentLocalSurfaceIdAllocator new_embed;
+  new_embed.GenerateId();
+  const SurfaceId missing(child_sink_, new_embed.GetCurrentLocalSurfaceId());
+  const SurfaceRange fallback(old_id, missing);
+  SubmitEmbedded({fallback}, gfx::Rect(100, 100));
+  Draw();
+  Arm(old_id);
+  SubmitChild(old_token_, gfx::Rect(10, 10, 1, 1));
+  SubmitEmbedded({fallback}, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, MissingEmbeddedSurfaceKeepsFullDamage) {
+  PrepareEmbedded();
+  Arm(ChildId());
+  ParentLocalSurfaceIdAllocator missing_allocator;
+  missing_allocator.GenerateId();
+  const SurfaceId missing(FrameSinkId(61, 3),
+                          missing_allocator.GetCurrentLocalSurfaceId());
+  SubmitEmbedded({SurfaceRange(ChildId()), SurfaceRange(missing)},
+                 gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, ChangedTopologyKeepsFullDamage) {
+  PrepareEmbedded();
+  Arm(ChildId());
+  Submit(old_token_, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, MultipleTargetSurfacesKeepFullDamage) {
+  PrepareEmbedded();
+  const SurfaceId older = ChildId();
+  child_allocator_.GenerateId();
+  SubmitChild(old_token_, gfx::Rect(100, 100));
+  const std::vector<SurfaceRange> ranges{SurfaceRange(older),
+                                        SurfaceRange(ChildId())};
+  SubmitEmbedded(ranges, gfx::Rect(100, 100));
+  Draw();
+  Arm(older);
+  SubmitEmbedded(ranges, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
+TEST_F(MideoDisplayDamageTest, ResizeKeepsFullDamage) {
+  Arm();
+  display_->Resize(gfx::Size(101, 101));
+  Submit(old_token_, gfx::Rect(10, 10, 1, 1));
+  Draw();
+  // Display 的输出尺寸变化时，不能依赖旧快照裁剪重建。
+  EXPECT_EQ(device_->damage(), gfx::Rect(101, 101));
+}
+
+TEST_F(MideoDisplayDamageTest, QuadBudgetKeepsFullDamage) {
+  Arm();
+  RenderPassBuilder pass(gfx::Size(100, 100));
+  for (size_t i = 0; i < 8193; ++i) {
+    pass.AddSolidColorQuad(gfx::Rect(100, 100), SkColors::kBlue);
+  }
+  pass.SetDamageRect(gfx::Rect(10, 10, 1, 1));
+  auto frame = CompositorFrameBuilder().AddRenderPass(pass).Build();
+  frame.metadata.mideo_frame_token = old_token_;
+  support_.SubmitCompositorFrame(allocator_.GetCurrentLocalSurfaceId(),
+                                 std::move(frame));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
 }
 
 }  // namespace

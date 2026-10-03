@@ -45,6 +45,7 @@
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/quads/shared_quad_state.h"
+#include "components/viz/common/quads/surface_draw_quad.h"
 #include "components/viz/common/switches.h"
 #include "components/viz/common/viz_utils.h"
 #include "components/viz/service/debugger/viz_debugger.h"
@@ -97,6 +98,42 @@
 namespace viz {
 
 namespace {
+
+constexpr size_t kMideoSurfaceBudget = 256;
+constexpr size_t kMideoQuadBudget = 8192;
+
+// 同时检查实际嵌入 Quad 和参考范围，后者仅作为保守上界，不能代替嵌入树。
+std::optional<std::vector<SurfaceRange>> MideoSurfaceRanges(
+    const CompositorFrame& frame,
+    size_t& remaining_quads) {
+  if (frame.render_pass_list.empty() ||
+      frame.metadata.referenced_surfaces.size() > kMideoSurfaceBudget) {
+    return std::nullopt;
+  }
+  base::flat_set<SurfaceRange> ranges;
+  for (const auto& range : frame.metadata.referenced_surfaces) {
+    if (!range.IsValid()) {
+      return std::nullopt;
+    }
+    ranges.insert(range);
+  }
+  for (const auto& pass : frame.render_pass_list) {
+    for (const DrawQuad* quad : pass->quad_list) {
+      if (remaining_quads == 0) {
+        return std::nullopt;
+      }
+      --remaining_quads;
+      if (quad->material == DrawQuad::Material::kSurfaceContent) {
+        const auto& range = SurfaceDrawQuad::MaterialCast(quad)->surface_range;
+        if (!range.IsValid()) {
+          return std::nullopt;
+        }
+        ranges.insert(range);
+      }
+    }
+  }
+  return std::vector<SurfaceRange>(ranges.begin(), ranges.end());
+}
 
 #if !BUILDFLAG(IS_APPLE)
 DBG_FLAG_FBOOL("delegated.fd.usage", usage_every_frame)
@@ -843,9 +880,9 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     // aggregated again so that the trail exists for a single frame.
     target_damage_bounding_rect.Union(
         renderer_->GetDelegatedInkTrailDamageRect());
-    // 首次软件导出会重建最终画布；必须在聚合裁剪之前保留整帧内容。
-    // 标记请求真正进入聚合前可能出现其他帧，不能只在 Arm 时设置一次。
-    if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled) {
+    // 目标帧和未知拓扑仍须在聚合裁剪前保留整帧；确定旧帧只保留正常损伤。
+    if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled &&
+        PendingMideoFrameNeedsFullDamage()) {
       aggregator_->SetFullDamageForSurface(current_surface_id_);
     }
     frame = aggregator_->Aggregate(
@@ -1465,6 +1502,7 @@ bool Display::ArmMideoFrame(
   }
   pending_mideo_frame_.emplace(PendingMideoFrame{
       .target_surface_id = target_surface_id,
+      .root_surface_id = current_surface_id_,
       .frame_token = frame_token,
       .buffer_file = std::move(buffer_file),
       .buffer_id = buffer_id,
@@ -1472,6 +1510,26 @@ bool Display::ArmMideoFrame(
       .size = size,
       .completion_callback = std::move(completion_callback),
   });
+  // 只允许对 Arm 时已完整聚合的稳定 Surface 放弃额外全损伤。
+  // 缺失快照、后续 ID/尺寸/范围变化均退回原来的保守策略。
+  const auto& contained = aggregator_->previous_contained_surfaces();
+  size_t remaining_quads = kMideoQuadBudget;
+  if (contained.size() <= kMideoSurfaceBudget) {
+    for (const SurfaceId& id : contained) {
+      Surface* surface = surface_manager_->GetSurfaceForId(id);
+      if (!surface || !surface->HasActiveFrame()) {
+        continue;
+      }
+      const auto& frame = surface->GetActiveFrame();
+      auto ranges = MideoSurfaceRanges(frame, remaining_quads);
+      if (!ranges) {
+        continue;
+      }
+      pending_mideo_frame_->surface_rects.emplace(
+          id, frame.render_pass_list.back()->output_rect);
+      pending_mideo_frame_->surface_ranges.emplace(id, std::move(*ranges));
+    }
+  }
   mideo_frame_timeout_.Start(FROM_HERE, base::Seconds(15),
                              base::BindOnce(&Display::CompleteMideoFrame,
                                             base::Unretained(this), false));
@@ -1516,6 +1574,61 @@ bool Display::PendingMideoFrameIsInAggregatedFrame() const {
     }
   }
   return false;
+}
+
+bool Display::PendingMideoFrameNeedsFullDamage() const {
+  CHECK(pending_mideo_frame_);
+  const auto& pending = *pending_mideo_frame_;
+  if (pending.root_surface_id != current_surface_id_ ||
+      pending.size != current_surface_size_) {
+    return true;
+  }
+  std::deque<SurfaceId> queue{current_surface_id_};
+  base::flat_set<SurfaceId> visited;
+  size_t remaining_quads = kMideoQuadBudget;
+  bool found_old_target = false;
+  while (!queue.empty()) {
+    const SurfaceId id = queue.front();
+    queue.pop_front();
+    // 重复节点（含环或多父路径）也保守回退，不猜测聚合器的裁剪选择。
+    if (!visited.insert(id).second || visited.size() > kMideoSurfaceBudget) {
+      return true;
+    }
+    Surface* surface = surface_manager_->GetSurfaceForId(id);
+    auto rect = pending.surface_rects.find(id);
+    auto snapshot_ranges = pending.surface_ranges.find(id);
+    if (!surface || !surface->HasActiveFrame() ||
+        rect == pending.surface_rects.end() ||
+        snapshot_ranges == pending.surface_ranges.end()) {
+      return true;
+    }
+    const auto& frame = surface->GetActiveFrame();
+    auto ranges = MideoSurfaceRanges(frame, remaining_quads);
+    if (!ranges || *ranges != snapshot_ranges->second ||
+        frame.render_pass_list.back()->output_rect != rect->second) {
+      return true;
+    }
+    if (id.frame_sink_id() == pending.target_surface_id.frame_sink_id()) {
+      if (id != pending.target_surface_id ||
+          frame.metadata.mideo_frame_token.is_empty() ||
+          frame.metadata.mideo_frame_token == pending.frame_token) {
+        return true;
+      }
+      found_old_target = true;
+    }
+    for (const SurfaceRange& range : *ranges) {
+      // 使用与聚合器一致的最新 active 解析；任何范围回退或新 ID 均全损伤。
+      Surface* child = surface_manager_->GetLatestInFlightSurface(range);
+      if (!child || child->surface_id() != range.end()) {
+        return true;
+      }
+      queue.push_back(child->surface_id());
+      if (queue.size() > kMideoSurfaceBudget) {
+        return true;
+      }
+    }
+  }
+  return !found_old_target;
 }
 
 void Display::CompleteMideoFrame(bool success) {

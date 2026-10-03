@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/containers/circular_deque.h"
+#include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/files/file.h"
 #include "base/functional/callback_forward.h"
@@ -31,6 +32,7 @@
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
+#include "components/viz/common/surfaces/surface_range.h"
 #include "components/viz/service/display/display_compositor_memory_and_task_controller.h"
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/display/display_scheduler.h"
@@ -300,12 +302,15 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
 
   struct PendingMideoFrame {
     SurfaceId target_surface_id;
+    SurfaceId root_surface_id;
     base::UnguessableToken frame_token;
     base::File buffer_file;
     base::UnguessableToken buffer_id;
     uint64_t buffer_offset = 0;
     gfx::Size size;
     base::OnceCallback<void(bool)> completion_callback;
+    base::flat_map<SurfaceId, gfx::Rect> surface_rects;
+    base::flat_map<SurfaceId, std::vector<SurfaceRange>> surface_ranges;
     bool copy_scheduled = false;
     bool copied = false;
     bool presented = false;
@@ -313,6 +318,7 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   };
 
   bool PendingMideoFrameIsInAggregatedFrame() const;
+  bool PendingMideoFrameNeedsFullDamage() const;
   void OnMideoFrameCopied(const base::UnguessableToken& frame_token,
                           bool success);
   void MaybeCompleteMideoFrame();

@@ -14,11 +14,21 @@
 同时保留普通帧局部损伤与已有 Alpha／Resize 测试。仅宿主输出使用既有
 FakeSoftwareOutputSurface 测试适配器，不替换 Surface 状态或渲染结果。
 
-当前提交仅增加行为验收和定向测试链接，不修改生产策略。Actions 需先实际
-复现旧 token 仍全损伤的红灯；编译错误不算行为红灯。之后才实现保守候选，
-按实际 SurfaceRange 最新 active／回退及嵌入树判断，未知拓扑、缺失 Surface、
-ID 变化或目标 token 到达仍强制全损伤；聚合后精确 token、完整画布、copy 和
-presentation 双门禁保持。新候选仍须定向编译与单测、完整构建、同机课程
+修复宿主后，`37125503023` 完成测试目标 16355/16355 编译与链接。四项实际
+测试中仅 `UnarrivedTokenKeepsNormalDamage` 失败：预期 10,10 1×1，实际
+0,0 100×100；目标 token 全损伤及远角蓝色、普通帧局部损伤和 Alpha／Resize
+全部通过。这是实际行为红灯，完整日志为 `/tmp/mideo-gate-37125503023.log`。
+
+候选在 Arm 时保存已经完整聚合的 Surface ID、输出矩形与嵌入／参考范围快照。
+聚合前从当前根遍历全部 render pass 的 SurfaceDrawQuad，并保守加入 metadata
+参考范围；按聚合器相同的 GetLatestInFlightSurface 规则解析。只有目标 Surface
+仍是原 ID、非空旧 token，且全部节点与快照尺寸／范围稳定，才不额外强制根全损伤。
+目标 token 到达、范围回退、新 ID、尺寸改变、缺失／未知节点、重复路径或超过
+256 Surface／8192 Quad 预算均保持全损伤。正常 Draw 不删除，聚合后精确 token、
+完整画布、copy 和 presentation 双门禁保持。新增实际嵌入旧／目标帧、缺失目标、
+空 token、根／子新 ID、范围回退、未知嵌入、拓扑改变、多目标 Surface、输出 Resize
+和 Quad 预算边界验收。尚待 Actions 编译与绿灯，不能称候选质量或性能已通过。
+新候选仍须定向编译与单测、完整构建、同机课程
 120 请求分布及完整真实课程质量联合验收，不能提前声称提速或低于 10ms。
 
 ## 已确认的失败
