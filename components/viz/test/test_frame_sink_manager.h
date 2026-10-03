@@ -89,9 +89,7 @@ class TestFrameSinkManagerImpl : public mojom::FrameSinkManager {
                      uint64_t buffer_offset,
                      const gfx::Size& size,
                      mojo::PendingRemote<mojom::MideoFrameCaptureClient> client,
-                     ArmMideoFrameCallback callback) override {
-    std::move(callback).Run(false);
-  }
+                     ArmMideoFrameCallback callback) override;
 #if BUILDFLAG(IS_ANDROID)
   void CacheBackBuffer(uint32_t cache_id,
                        const FrameSinkId& root_frame_sink_id) override {}

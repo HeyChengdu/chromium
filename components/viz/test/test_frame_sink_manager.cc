@@ -12,6 +12,18 @@ TestFrameSinkManagerImpl::TestFrameSinkManagerImpl() = default;
 
 TestFrameSinkManagerImpl::~TestFrameSinkManagerImpl() = default;
 
+void TestFrameSinkManagerImpl::ArmMideoFrame(
+    const SurfaceId& surface_id,
+    const base::UnguessableToken& frame_token,
+    base::File buffer_file,
+    const base::UnguessableToken& buffer_id,
+    uint64_t buffer_offset,
+    const gfx::Size& size,
+    mojo::PendingRemote<mojom::MideoFrameCaptureClient> client,
+    ArmMideoFrameCallback callback) {
+  std::move(callback).Run(false);
+}
+
 void TestFrameSinkManagerImpl::BindReceiver(
     mojo::PendingReceiver<mojom::FrameSinkManager> receiver,
     mojo::PendingRemote<mojom::FrameSinkManagerClient> client) {

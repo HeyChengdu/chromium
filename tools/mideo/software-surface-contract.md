@@ -4,6 +4,11 @@
 
 有效同机课程窗口显示目标帧提交被先前 Viz 绘制阻塞。现有 Display 在待交付
 请求的每次聚合前强制根 Surface 全损伤，目标 token 则在聚合后才检查。
+定向门禁 `37107414467` 的生产对象编译已完成，软件测试目标在编译真实
+`viz/test:test_support` 时被 Chromium 风格检查拒绝：测试宿主的
+`ArmMideoFrame` 含非空内联虚函数体。将原拒绝回调逐字移至 `.cc`，不修改
+宿主行为、生产策略或风格检查；本轮尚未执行行为测试，不算预期红灯。
+
 先新增 `MideoDisplayDamageTest`：通过真实 FrameSink 提交、Surface 聚合和
 软件画布绘制观察旧 token 的局部损伤、目标 token 的全损伤及远角蓝色像素，
 同时保留普通帧局部损伤与已有 Alpha／Resize 测试。仅宿主输出使用既有
