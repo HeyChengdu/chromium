@@ -883,7 +883,7 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     // 目标帧和未知拓扑仍须在聚合裁剪前保留整帧；确定旧帧只保留正常损伤。
     if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled &&
         PendingMideoFrameNeedsFullDamage()) {
-      aggregator_->SetFullDamageForSurface(current_surface_id_);
+      aggregator_->SetFullDamageForMideoSurface(current_surface_id_);
     }
     frame = aggregator_->Aggregate(
         current_surface_id_, params.expected_display_time,

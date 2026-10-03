@@ -35,6 +35,15 @@ FakeSoftwareOutputSurface 测试适配器，不替换 Surface 状态或渲染结
 `optional<UnguessableToken>`，不能直接调用 `is_empty()`。判定改为先拒绝字段缺失，
 再拒绝空 token；两种情况均保持全损伤。尚未运行候选行为测试，不作绿灯或提速结论。
 
+`37136437305` 完成编译、链接并实际执行 17 项测试，16 项通过；唯一失败是
+`NewRootIdKeepsFullDamage`：新根 ID 仍只有 1×1 损伤。源码确认既有
+`SetFullDamageForSurface` 只标记已存在的解析缓存，新根尚无缓存时无操作，
+随后解析可能继承旧 Surface 的帧索引。因此增加仅供 Mideo 使用的强制损伤入口，
+先按既有规则解析实际 active Surface，再令前帧索引失效；缺失 Surface 仍返回空帧。
+普通绘制的既有入口保持原语义，根 ID 变化的全损伤断言保留。定向编译增加实际
+修改的 SurfaceAggregator 对象，六 worker 与原预算不变；新门禁仍须实际全绿，
+尚无候选性能或整课质量结论。
+
 ## 已确认的失败
 
 诊断运行 `36522039310` 复用 `dc7407a62b55df661f23dc978f222ba581c30ce0` 候选。

@@ -106,6 +106,8 @@ class VIZ_SERVICE_EXPORT SurfaceAggregator : public SurfaceObserver {
     return previous_contained_frame_sinks_;
   }
   void SetFullDamageForSurface(const SurfaceId& surface_id);
+  // Mideo 首次聚合的新根也必须获得完整损伤，不能依赖已有解析缓存。
+  void SetFullDamageForMideoSurface(const SurfaceId& surface_id);
   void set_output_is_secure(bool secure) { output_is_secure_ = secure; }
   void set_take_copy_requests(bool value) { take_copy_requests_ = value; }
 

@@ -2369,6 +2369,15 @@ void SurfaceAggregator::SetFullDamageForSurface(const SurfaceId& surface_id) {
     iter->second.SetFullDamageForNextAggregation();
 }
 
+void SurfaceAggregator::SetFullDamageForMideoSurface(
+    const SurfaceId& surface_id) {
+  DCHECK(!is_inside_aggregate_);
+  // 新 Surface 可能继承旧帧索引；先解析实际 active Surface，再使索引失效。
+  // 缺失 Surface 仍由 Aggregate 返回空帧，不能伪造可交付内容。
+  if (auto* resolved_frame = GetResolvedFrame(surface_id))
+    resolved_frame->SetFullDamageForNextAggregation();
+}
+
 void SurfaceAggregator::SetDisplayColorSpaces(
     const gfx::DisplayColorSpaces& display_color_spaces) {
   display_color_spaces_ = display_color_spaces;
