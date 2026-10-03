@@ -1,5 +1,21 @@
 # Mideo 软件输出 Surface 契约
 
+## 2026-10-03 真实课程 10ms 主线的损伤边界验收
+
+有效同机课程窗口显示目标帧提交被先前 Viz 绘制阻塞。现有 Display 在待交付
+请求的每次聚合前强制根 Surface 全损伤，目标 token 则在聚合后才检查。
+先新增 `MideoDisplayDamageTest`：通过真实 FrameSink 提交、Surface 聚合和
+软件画布绘制观察旧 token 的局部损伤、目标 token 的全损伤及远角蓝色像素，
+同时保留普通帧局部损伤与已有 Alpha／Resize 测试。仅宿主输出使用既有
+FakeSoftwareOutputSurface 测试适配器，不替换 Surface 状态或渲染结果。
+
+当前提交仅增加行为验收和定向测试链接，不修改生产策略。Actions 需先实际
+复现旧 token 仍全损伤的红灯；编译错误不算行为红灯。之后才实现保守候选，
+按实际 SurfaceRange 最新 active／回退及嵌入树判断，未知拓扑、缺失 Surface、
+ID 变化或目标 token 到达仍强制全损伤；聚合后精确 token、完整画布、copy 和
+presentation 双门禁保持。新候选仍须定向编译与单测、完整构建、同机课程
+120 请求分布及完整真实课程质量联合验收，不能提前声称提速或低于 10ms。
+
 ## 已确认的失败
 
 诊断运行 `36522039310` 复用 `dc7407a62b55df661f23dc978f222ba581c30ce0` 候选。

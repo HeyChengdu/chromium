@@ -604,15 +604,18 @@ viz_component("service") {
 # 软件导出契约可以独立执行，不要求先链接整个浏览器或 viz_unittests。
 viz_test("mideo_software_output_device_unittests") {
   sources = [
-    "display/software_output_device.cc",
+    "display/mideo_display_damage_unittest.cc",
     "display/software_output_device_unittest.cc",
   ]
   defines = [ "VIZ_SERVICE_IMPLEMENTATION" ]
   deps = [
-    ":viz_service_export",
+    ":service",
     "//base",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
+    "//components/viz/common",
+    "//components/viz/test:test_support",
+    "//gpu/command_buffer/service",
     "//skia",
     "//testing/gtest",
     "//ui/gfx",
