@@ -223,6 +223,21 @@ TEST_F(MideoDisplayDamageTest, MissingTargetKeepsFullDamage) {
   EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
 }
 
+TEST_F(MideoDisplayDamageTest, MissingTokenFieldKeepsFullDamage) {
+  Arm();
+  auto frame = CompositorFrameBuilder()
+                   .AddRenderPass(RenderPassBuilder(gfx::Size(100, 100))
+                                      .AddSolidColorQuad(gfx::Rect(100, 100),
+                                                         SkColors::kBlue)
+                                      .SetDamageRect(gfx::Rect(10, 10, 1, 1)))
+                   .Build();
+  ASSERT_FALSE(frame.metadata.mideo_frame_token.has_value());
+  support_.SubmitCompositorFrame(allocator_.GetCurrentLocalSurfaceId(),
+                                 std::move(frame));
+  Draw();
+  EXPECT_EQ(device_->damage(), gfx::Rect(100, 100));
+}
+
 TEST_F(MideoDisplayDamageTest, NewRootIdKeepsFullDamage) {
   Arm();
   allocator_.GenerateId();

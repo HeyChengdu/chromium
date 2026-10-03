@@ -1610,7 +1610,8 @@ bool Display::PendingMideoFrameNeedsFullDamage() const {
     }
     if (id.frame_sink_id() == pending.target_surface_id.frame_sink_id()) {
       if (id != pending.target_surface_id ||
-          frame.metadata.mideo_frame_token.is_empty() ||
+          !frame.metadata.mideo_frame_token ||
+          frame.metadata.mideo_frame_token->is_empty() ||
           frame.metadata.mideo_frame_token == pending.frame_token) {
         return true;
       }
