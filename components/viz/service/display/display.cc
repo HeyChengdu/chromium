@@ -881,9 +881,19 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     target_damage_bounding_rect.Union(
         renderer_->GetDelegatedInkTrailDamageRect());
     // 目标帧和未知拓扑仍须在聚合裁剪前保留整帧；确定旧帧只保留正常损伤。
-    if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled &&
-        PendingMideoFrameNeedsFullDamage()) {
-      aggregator_->SetFullDamageForMideoSurface(current_surface_id_);
+    if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled) {
+      const bool needs_full_damage = PendingMideoFrameNeedsFullDamage();
+      // 只记录聚合前输入与判定，不改变普通 Draw 或完整帧守卫。
+      TRACE_EVENT_INSTANT(
+          "viz", "Mideo.DamageInput", "root_damage_rect",
+          surface->HasActiveFrame()
+              ? surface->GetActiveFrame().render_pass_list.back()->damage_rect
+                    .ToString()
+              : "no-active-frame",
+          "force_full", needs_full_damage);
+      if (needs_full_damage) {
+        aggregator_->SetFullDamageForMideoSurface(current_surface_id_);
+      }
     }
     frame = aggregator_->Aggregate(
         current_surface_id_, params.expected_display_time,
@@ -1579,9 +1589,15 @@ bool Display::PendingMideoFrameIsInAggregatedFrame() const {
 bool Display::PendingMideoFrameNeedsFullDamage() const {
   CHECK(pending_mideo_frame_);
   const auto& pending = *pending_mideo_frame_;
+  // 原因仅用于真实课程 trace；不输出 token，也不改变任何回退条件。
+  const auto report = [](bool full_damage, const char* reason) {
+    TRACE_EVENT_INSTANT("viz", "Mideo.DamageDecision", "force_full",
+                        full_damage, "reason", reason);
+    return full_damage;
+  };
   if (pending.root_surface_id != current_surface_id_ ||
       pending.size != current_surface_size_) {
-    return true;
+    return report(true, "root_or_size_changed");
   }
   std::deque<SurfaceId> queue{current_surface_id_};
   base::flat_set<SurfaceId> visited;
@@ -1592,7 +1608,7 @@ bool Display::PendingMideoFrameNeedsFullDamage() const {
     queue.pop_front();
     // 重复节点（含环或多父路径）也保守回退，不猜测聚合器的裁剪选择。
     if (!visited.insert(id).second || visited.size() > kMideoSurfaceBudget) {
-      return true;
+      return report(true, "duplicate_or_surface_budget");
     }
     Surface* surface = surface_manager_->GetSurfaceForId(id);
     auto rect = pending.surface_rects.find(id);
@@ -1600,20 +1616,28 @@ bool Display::PendingMideoFrameNeedsFullDamage() const {
     if (!surface || !surface->HasActiveFrame() ||
         rect == pending.surface_rects.end() ||
         snapshot_ranges == pending.surface_ranges.end()) {
-      return true;
+      return report(true, "missing_surface_or_snapshot");
     }
     const auto& frame = surface->GetActiveFrame();
     auto ranges = MideoSurfaceRanges(frame, remaining_quads);
     if (!ranges || *ranges != snapshot_ranges->second ||
         frame.render_pass_list.back()->output_rect != rect->second) {
-      return true;
+      return report(true, "range_or_size_changed");
     }
     if (id.frame_sink_id() == pending.target_surface_id.frame_sink_id()) {
       if (id != pending.target_surface_id ||
           !frame.metadata.mideo_frame_token ||
           frame.metadata.mideo_frame_token->is_empty() ||
           frame.metadata.mideo_frame_token == pending.frame_token) {
-        return true;
+        const char* reason = "target_arrived";
+        if (id != pending.target_surface_id) {
+          reason = "target_id_changed";
+        } else if (!frame.metadata.mideo_frame_token) {
+          reason = "missing_token";
+        } else if (frame.metadata.mideo_frame_token->is_empty()) {
+          reason = "empty_token";
+        }
+        return report(true, reason);
       }
       found_old_target = true;
     }
@@ -1621,15 +1645,16 @@ bool Display::PendingMideoFrameNeedsFullDamage() const {
       // 使用与聚合器一致的最新 active 解析；任何范围回退或新 ID 均全损伤。
       Surface* child = surface_manager_->GetLatestInFlightSurface(range);
       if (!child || child->surface_id() != range.end()) {
-        return true;
+        return report(true, "missing_child_or_fallback");
       }
       queue.push_back(child->surface_id());
       if (queue.size() > kMideoSurfaceBudget) {
-        return true;
+        return report(true, "queue_budget");
       }
     }
   }
-  return !found_old_target;
+  return report(!found_old_target,
+                found_old_target ? "stable_old_target" : "target_not_found");
 }
 
 void Display::CompleteMideoFrame(bool success) {
