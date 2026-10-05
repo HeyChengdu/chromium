@@ -193,6 +193,7 @@ bool SoftwareRenderer::WriteMideoFrame(SkCanvas* canvas,
   const SkImageInfo info = SkImageInfo::Make(
       request.size.width(), request.size.height(), kBGRA_8888_SkColorType,
       kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
+  TRACE_EVENT("viz", "Mideo.ReadPixels");
   return canvas->readPixels(info, destination.data(), stride, 0, 0);
 }
 

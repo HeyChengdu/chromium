@@ -1123,6 +1123,13 @@ DrawResult LayerTreeHostImpl::CalculateRenderPasses(FrameData* frame,
   // the root damage rect. The root damage rect is then used to scissor each
   // surface.
   DamageTracker::UpdateDamageTracking(active_tree_.get());
+  TRACE_EVENT_INSTANT(
+      "cc", "Mideo.CompositorDamage", "source_frame",
+      active_tree_->source_frame_number(), "viewport_damage",
+      viewport_damage_rect_.ToString(), "root_damage",
+      active_tree_->RootRenderSurface()->GetDamageRect().ToString(),
+      "surface_property_changed",
+      active_tree_->RootRenderSurface()->SurfacePropertyChanged());
   frame->damage_reasons =
       active_tree_->RootRenderSurface()->damage_tracker()->GetDamageReasons();
 
@@ -1587,6 +1594,9 @@ void LayerTreeHostImpl::DidAnimateScrollOffset() {
 }
 
 void LayerTreeHostImpl::SetViewportDamage(const gfx::Rect& damage_rect) {
+  TRACE_EVENT_INSTANT("cc", "Mideo.ViewportDamageInput", "source_frame",
+                      active_tree_->source_frame_number(), "damage",
+                      damage_rect.ToString());
   viewport_damage_rect_.Union(damage_rect);
 }
 

@@ -103,8 +103,16 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 
 ## 验收门禁
 
-真实课程损伤诊断在待抓帧聚合前记录 `Mideo.DamageInput` 的原始根损伤矩形和
-`Mideo.DamageDecision` 的保守判定原因。用同一 Viz 线程／Draw 时窗将它们与聚合后
+真实课程损伤诊断在待抓帧聚合前记录 `Mideo.DamageInput` 的原始根损伤矩形与
+`Mideo.DamageDecision` 的保守判定原因。
+上游 cc 诊断记录 `Mideo.ForcedActivationDamage` 的强制激活来源、
+`Mideo.ViewportDamageInput` 的视口损伤输入，以及 `Mideo.CompositorDamage` 的
+SourceFrameNumber、视口损伤、更新后的根损伤和 surface 属性变化。
+共享帧交付以 `Mideo.ReadPixels` 单独包围原有 sRGB premul 到 BGRA unpremul 的
+直接共享映射写入；不改变转换、返回值或守卫。新增诊断尚待原生 Actions 门禁，
+定向编译覆盖两个 cc 对象及原有二十个对象，既有真实测试和免费六 worker 预算保持。
+
+用同一 Viz 线程／Draw 时窗将 Display 诊断与聚合后
 `root_damage_rect` 对齐，区分正常输入已经全损伤与 Mideo 额外扩大损伤。
 原因覆盖缺 token、空 token、目标到达、ID／尺寸／范围变化、缺失快照、范围回退与
 遍历预算；不输出 token 值，不更改任何判定或正常 Draw。没有这些事件的旧 trace

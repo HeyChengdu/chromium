@@ -2074,6 +2074,9 @@ size_t LayerTreeImpl::NumLayers() {
 
 void LayerTreeImpl::DidBecomeActive() {
   if (next_activation_forces_redraw_) {
+    TRACE_EVENT_INSTANT("cc", "Mideo.ForcedActivationDamage",
+                        "source_frame", source_frame_number(),
+                        "viewport", GetDeviceViewport().ToString());
     host_impl_->SetViewportDamage(GetDeviceViewport());
     next_activation_forces_redraw_ = false;
   }
