@@ -883,6 +883,21 @@ bool Display::DrawAndSwap(const DrawAndSwapParams& params) {
     // 目标帧和未知拓扑仍须在聚合裁剪前保留整帧；确定旧帧只保留正常损伤。
     if (pending_mideo_frame_ && !pending_mideo_frame_->copy_scheduled) {
       const bool needs_full_damage = PendingMideoFrameNeedsFullDamage();
+      // 在强制聚合前记录实际 active root 身份，不用时间邻近代替帧归属。
+      if (surface->HasActiveFrame()) {
+        TRACE_EVENT_INSTANT(
+            "viz", "Mideo.ActiveRootFrame", "frame_sink",
+            current_surface_id_.frame_sink_id().ToString(), "embed_id",
+            current_surface_id_.local_surface_id().embed_token().ToString(),
+            "parent_sequence",
+            current_surface_id_.local_surface_id().parent_sequence_number(),
+            "child_sequence",
+            current_surface_id_.local_surface_id().child_sequence_number(),
+            "frame_token", surface->GetActiveFrameMetadata().frame_token,
+            "root_damage",
+            surface->GetActiveFrame().render_pass_list.back()->damage_rect
+                .ToString());
+      }
       // 只记录聚合前输入与判定，不改变普通 Draw 或完整帧守卫。
       TRACE_EVENT_INSTANT(
           "viz", "Mideo.DamageInput", "root_damage_rect",

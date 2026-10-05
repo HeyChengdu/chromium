@@ -212,6 +212,7 @@ jobs:
             obj/components/viz/host/host/host_frame_sink_manager.o \
             obj/components/viz/service/service/direct_renderer.o \
             obj/components/viz/service/service/display.o \
+            obj/components/viz/service/service/surface.o \
             obj/components/viz/service/service/surface_aggregator.o \
             obj/components/viz/service/service/skia_output_surface.o \
             obj/components/viz/service/service/skia_output_surface_impl.o \

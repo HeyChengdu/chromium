@@ -2898,6 +2898,16 @@ std::optional<SubmitInfo> LayerTreeHostImpl::DrawLayers(FrameData* frame) {
       compositor_frame.metadata.trees_in_viz_timing_details
           .submit_compositor_frame = submit_time;
     }
+    // 记录最终提交值；完整 Surface 嵌入身份用字符串保留，避免 JS 整数舍入。
+    TRACE_EVENT_INSTANT(
+        "cc", "Mideo.FinalCompositorFrame", "source_frame",
+        active_tree_->source_frame_number(), "frame_token",
+        compositor_frame.metadata.frame_token, "embed_id",
+        GetCurrentLocalSurfaceId().embed_token().ToString(), "parent_sequence",
+        GetCurrentLocalSurfaceId().parent_sequence_number(), "child_sequence",
+        GetCurrentLocalSurfaceId().child_sequence_number(), "root_damage",
+        compositor_frame.render_pass_list.back()->damage_rect.ToString(),
+        "hud_present", active_tree_->hud_layer() != nullptr);
     layer_tree_frame_sink_->SubmitCompositorFrame(
         std::move(compositor_frame),
         /*hit_test_data_changed=*/false);

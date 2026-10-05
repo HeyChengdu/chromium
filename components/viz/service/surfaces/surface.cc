@@ -303,6 +303,17 @@ Surface::QueueFrameResult Surface::CommitFrame(FrameData frame) {
   TRACE_EVENT1("viz", "Surface::CommitFrame", "SurfaceId",
                surface_id().ToString());
 
+  // 提交仍可能等待依赖；用帧计数与完整嵌入身份关联，不能把提交当激活。
+  TRACE_EVENT_INSTANT(
+      "viz", "Mideo.SurfaceCommit", "frame_sink",
+      surface_id().frame_sink_id().ToString(), "embed_id",
+      surface_id().local_surface_id().embed_token().ToString(),
+      "parent_sequence",
+      surface_id().local_surface_id().parent_sequence_number(),
+      "child_sequence", surface_id().local_surface_id().child_sequence_number(),
+      "frame_token", frame.frame.metadata.frame_token, "root_damage",
+      frame.frame.render_pass_list.back()->damage_rect.ToString());
+
   is_latency_info_taken_ = false;
 
   if (active_frame_data_ || pending_frame_data_)
@@ -684,6 +695,17 @@ void Surface::RecomputeActiveReferencedSurfaces() {
 void Surface::ActivateFrame(FrameData frame_data) {
   TRACE_EVENT1("viz", "Surface::ActivateFrame", "SurfaceId",
                surface_id().ToString());
+
+  // 记录实际被激活的帧，保留原有依赖、资源和回执处理。
+  TRACE_EVENT_INSTANT(
+      "viz", "Mideo.SurfaceActivate", "frame_sink",
+      surface_id().frame_sink_id().ToString(), "embed_id",
+      surface_id().local_surface_id().embed_token().ToString(),
+      "parent_sequence",
+      surface_id().local_surface_id().parent_sequence_number(),
+      "child_sequence", surface_id().local_surface_id().child_sequence_number(),
+      "frame_token", frame_data.frame.metadata.frame_token, "root_damage",
+      frame_data.frame.render_pass_list.back()->damage_rect.ToString());
 
   // Reset observation since the pending frame got activated.
   frame_sink_manager_observation_.Reset();

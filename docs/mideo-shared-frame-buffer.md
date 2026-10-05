@@ -109,13 +109,22 @@ CDP 截图和 Viz 共享帧接口保留，绘制、字体及图像解码能力�
 `Mideo.ViewportDamageInput` 的视口损伤输入，以及 `Mideo.CompositorDamage` 的
 SourceFrameNumber、视口损伤、更新后的根损伤和 surface 属性变化。
 共享帧交付以 `Mideo.ReadPixels` 单独包围原有 sRGB premul 到 BGRA unpremul 的
-直接共享映射写入；不改变转换、返回值或守卫。新增诊断尚待原生 Actions 门禁，
-定向编译覆盖两个 cc 对象及原有二十个对象，既有真实测试和免费六 worker 预算保持。
+直接共享映射写入；不改变转换、返回值或守卫。
+`Mideo.CompositorDamage` 早于 render pass 创建，不能当作最终提交损伤。
+`Mideo.FinalCompositorFrame` 记录实际提交的 SourceFrameNumber、frame token、
+完整 LocalSurfaceId 嵌入身份、父子序号、最终根损伤与 HUD 是否存在。
+Viz 的 `Mideo.SurfaceCommit`、`Mideo.SurfaceActivate` 和 `Mideo.ActiveRootFrame`
+分别记录提交、激活及聚合前实际 active root 的 FrameSinkId、相同帧身份和根损伤。
+提交可能仍等待依赖，不能当作已激活；跨边界关联必须身份一致且唯一，不能只凭时间邻近。
+完整嵌入身份以字符串保存，避免 trace 经 JS 重序列化后大整数舍入。
+这些帧身份不是抓帧请求的令牌，诊断不输出抓帧请求令牌。
+新增帧身份诊断尚待原生 Actions 门禁，定向编译覆盖二十三个生产对象，
+既有真实测试和免费六 worker 预算保持。
 
 用同一 Viz 线程／Draw 时窗将 Display 诊断与聚合后
 `root_damage_rect` 对齐，区分正常输入已经全损伤与 Mideo 额外扩大损伤。
 原因覆盖缺 token、空 token、目标到达、ID／尺寸／范围变化、缺失快照、范围回退与
-遍历预算；不输出 token 值，不更改任何判定或正常 Draw。没有这些事件的旧 trace
+遍历预算；不输出抓帧请求令牌，不更改任何判定或正常 Draw。没有这些事件的旧 trace
 不能据全画布矩形猜回退原因。诊断构建仍先通过既有真实 Surface 单测，再完整构建，
 不把诊断或基础像素门禁当作真实课程低于 10ms／整课验收。
 
