@@ -239,7 +239,7 @@ jobs:
         working-directory: src
         run: |
           autoninja -C out/Mideo -j 6 mideo_software_output_device_unittests
-          out/Mideo/mideo_software_output_device_unittests --test-launcher-jobs=1 --gtest_filter=SoftwareOutputDeviceMideoTest.*:MideoDisplayDamageTest.*
+          out/Mideo/mideo_software_output_device_unittests --test-launcher-jobs=1 --gtest_filter=SoftwareOutputDeviceMideoTest.*:MideoDisplayDamageTest.*:MideoOpaquePixelsTest.*
 
       - name: Build headless shell with six workers
         if: ${{ inputs.compile_check_only != true }}

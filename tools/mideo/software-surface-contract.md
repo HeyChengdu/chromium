@@ -1,5 +1,27 @@
 # Mideo 软件输出 Surface 契约
 
+## 2026-10-06 全不透明像素优化的红灯契约
+
+真实课程 `37482055331` 的 120 次 ReadPixels 全部精确配对；51 个 CPU
+样本落在其中 50 次调用内，父栈均为 WriteMideoFrame → SkCanvas::readPixels
+→ SkConvertPixels → SkRasterPipeline，叶函数以 store_8888 和 unpremul 为主。
+离散采样比例不代表精确耗时，也不能将其他 Draw 的样本当作可删除帧。
+该窗口候选端到端均值 11.259875ms，91/120 超过 10ms；无原生优化收益结论。
+
+审计 DEPS 固定的 Skia `5456aa926156029fac5cdf5cf5a863cbe9cf3a75`：
+SkPixmap::computeIsOpaque 对 BGRA8888 逐行扫描实际 Alpha；相同颜色空间且
+opaque 源到 unpremul 目标不需要反预乘，SkConvertPixels 可走 rect_memcpy。
+因此只评估可读、BGRA/Premul/sRGB、尺寸与紧密 rowBytes 严格匹配并且实际
+每个 Alpha 均为 255 的像素。其他情况完整保留原 readPixels。
+
+当前只加入 `CopyOpaqueMideoPixels` 的拒绝占位及四项真实 Skia 像素契约测试：
+全帧非均匀色值逐字节及前后边界、任意位置单个 Alpha=254、透明像素，以及
+空地址／未知颜色空间／格式／Alpha／尺寸／步长／输出容量不匹配的无写入拒绝。
+尚未接入 WriteMideoFrame、实现快速路径或宣称提速；先由 Actions 运行确认
+全不透明复制的预期行为红灯，已有 Surface、Alpha、Resize 门禁同时执行。
+红灯后再实现最小候选、定向绿灯、同新源码完整构建和同 runner 真实课程，
+最终完整旁白与逐帧质量验收通过前保持默认关闭。
+
 ## 2026-10-03 真实课程 10ms 主线的损伤边界验收
 
 有效同机课程窗口显示目标帧提交被先前 Viz 绘制阻塞。现有 Display 在待交付

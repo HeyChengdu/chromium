@@ -141,6 +141,7 @@ viz_component("service") {
     "display/skia_renderer.h",
     "display/software_output_device.cc",
     "display/software_output_device.h",
+    "display/mideo_opaque_pixels.h",
     "display/software_renderer.cc",
     "display/software_renderer.h",
     "display/surface_aggregator.cc",

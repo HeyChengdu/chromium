@@ -4,6 +4,10 @@
 
 #include "components/viz/service/display/display.h"
 
+#include <algorithm>
+#include <array>
+
+#include "base/containers/span.h"
 #include "base/files/file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/functional/bind.h"
@@ -13,6 +17,7 @@
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/service/display/display_client.h"
+#include "components/viz/service/display/mideo_opaque_pixels.h"
 #include "components/viz/service/display/overlay_processor_stub.h"
 #include "components/viz/service/display/software_output_device.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
@@ -24,9 +29,96 @@
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 
 namespace viz {
 namespace {
+
+// 此边界直接检查真实像素和输出，不替换 Skia，也不以背景颜色推断 Alpha。
+class MideoOpaquePixelsTest : public testing::Test {
+ protected:
+  SkImageInfo SourceInfo() const {
+    return SkImageInfo::Make(3, 2, kBGRA_8888_SkColorType,
+                             kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
+  }
+
+  SkImageInfo TargetInfo() const {
+    return SourceInfo().makeAlphaType(kUnpremul_SkAlphaType);
+  }
+
+  alignas(4) std::array<uint8_t, 24> pixels_{
+      1, 37, 253, 255, 0, 255, 17, 255, 255, 0, 123, 255,
+      64, 128, 192, 255, 7, 11, 13, 255, 239, 241, 251, 255};
+};
+
+TEST_F(MideoOpaquePixelsTest, userCopiesEveryOpaquePixelWithoutChangingGuards) {
+  // Given 非均匀、全不透明的真实 BGRA/Premul/sRGB 像素。
+  const SkPixmap source(SourceInfo(), pixels_.data(), 12);
+  std::array<uint8_t, 32> output;
+  output.fill(0xA5);
+  // When 输出到有前后边界的独立区域。
+  ASSERT_TRUE(CopyOpaqueMideoPixels(
+      source, TargetInfo(), base::span(output).subspan(4, 24), 12));
+  // Then 每个字节与原始像素一致，区域以外不改动。
+  EXPECT_TRUE(std::equal(pixels_.begin(), pixels_.end(), output.begin() + 4));
+  EXPECT_EQ(output[0], 0xA5);
+  EXPECT_EQ(output[3], 0xA5);
+  EXPECT_EQ(output[28], 0xA5);
+  EXPECT_EQ(output[31], 0xA5);
+  std::array<uint8_t, 24> generic;
+  ASSERT_TRUE(source.readPixels(TargetInfo(), generic.data(), 12));
+  EXPECT_EQ(generic, pixels_);
+}
+
+TEST_F(MideoOpaquePixelsTest, userKeepsFallbackForAnyNonopaquePixel) {
+  // Given 任意位置只有一个 Alpha=254 的像素，包括末行末像素。
+  for (size_t index = 3; index < pixels_.size(); index += 4) {
+    pixels_[index] = 254;
+    const SkPixmap source(SourceInfo(), pixels_.data(), 12);
+    std::array<uint8_t, 24> output;
+    output.fill(0xA5);
+    // When 尝试无损直拷。
+    EXPECT_FALSE(CopyOpaqueMideoPixels(source, TargetInfo(), output, 12));
+    // Then 保留通用 Alpha 转换，拒绝时不能先写出部分帧。
+    for (uint8_t byte : output) {
+      EXPECT_EQ(byte, 0xA5);
+    }
+    pixels_[index] = 255;
+  }
+}
+
+TEST_F(MideoOpaquePixelsTest, userKeepsFallbackForTransparentPixel) {
+  pixels_[23] = 0;
+  const SkPixmap source(SourceInfo(), pixels_.data(), 12);
+  std::array<uint8_t, 24> output{};
+  EXPECT_FALSE(CopyOpaqueMideoPixels(source, TargetInfo(), output, 12));
+}
+
+TEST_F(MideoOpaquePixelsTest, userRejectsUnknownOrMismatchedPixelContracts) {
+  std::array<uint8_t, 24> output;
+  output.fill(0xA5);
+  const auto reject = [&](const SkPixmap& source, const SkImageInfo& target,
+                          base::span<uint8_t> destination, size_t row_bytes) {
+    EXPECT_FALSE(CopyOpaqueMideoPixels(source, target, destination, row_bytes));
+    for (uint8_t byte : output) {
+      EXPECT_EQ(byte, 0xA5);
+    }
+  };
+  const SkPixmap source(SourceInfo(), pixels_.data(), 12);
+  reject(SkPixmap(SourceInfo(), nullptr, 12), TargetInfo(), output, 12);
+  reject(SkPixmap(SourceInfo().makeColorSpace(nullptr), pixels_.data(), 12),
+         TargetInfo(), output, 12);
+  reject(SkPixmap(SourceInfo().makeColorType(kRGBA_8888_SkColorType),
+                  pixels_.data(), 12), TargetInfo(), output, 12);
+  reject(SkPixmap(SourceInfo().makeAlphaType(kOpaque_SkAlphaType),
+                  pixels_.data(), 12), TargetInfo(), output, 12);
+  reject(source, TargetInfo().makeWH(2, 2), output, 12);
+  reject(source, TargetInfo().makeAlphaType(kPremul_SkAlphaType), output, 12);
+  reject(source, TargetInfo().makeColorSpace(nullptr), output, 12);
+  reject(source, TargetInfo(), base::span(output).first(23), 12);
+  reject(source, TargetInfo(), output, 8);
+  reject(SkPixmap(SourceInfo(), pixels_.data(), 16), TargetInfo(), output, 12);
+}
 
 // 使用真实 Surface 提交和软件绘制，宿主输出仅使用既有软件测试适配器。
 class DamageDevice : public SoftwareOutputDevice {
