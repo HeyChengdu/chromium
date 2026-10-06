@@ -83,6 +83,11 @@ jobs:
           path: controller
           sparse-checkout: tools/mideo
 
+      - name: Validate bounded build controller
+        run: |
+          python3 controller/tools/mideo/build_budget_test.py
+          python3 controller/tools/mideo/checkpoint_test.py
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.BUILD_COMMIT }}
@@ -250,7 +255,7 @@ jobs:
           budget=$(( 300 * 60 - elapsed ))
           if [ "$budget" -gt 16200 ]; then budget=16200; fi
           if [ "$budget" -le 0 ]; then echo '准备阶段耗尽编译预算'; exit 1; fi
-          timeout --signal=INT --kill-after=60s "${budget}s" autoninja -C out/Mideo -j 6 headless_shell > >(tee ../build-diagnostics/build.log) 2>&1
+          python3 ../controller/tools/mideo/build_budget.py "$budget" autoninja -C out/Mideo -j 6 headless_shell > >(tee ../build-diagnostics/build.log) 2>&1
           result=$?
           set -e
           echo "exit_code=$result" >> "$GITHUB_OUTPUT"
