@@ -58,7 +58,7 @@ TEST_F(MideoOpaquePixelsTest, userCopiesEveryOpaquePixelWithoutChangingGuards) {
   output.fill(0xA5);
   // When 输出到有前后边界的独立区域。
   ASSERT_TRUE(CopyOpaqueMideoPixels(
-      source, TargetInfo(), base::span(output).subspan(4, 24), 12));
+      source, TargetInfo(), base::span(output).subspan(4u, 24u), 12));
   // Then 每个字节与原始像素一致，区域以外不改动。
   EXPECT_TRUE(std::equal(pixels_.begin(), pixels_.end(), output.begin() + 4));
   EXPECT_EQ(output[0], 0xA5);
@@ -115,7 +115,7 @@ TEST_F(MideoOpaquePixelsTest, userRejectsUnknownOrMismatchedPixelContracts) {
   reject(source, TargetInfo().makeWH(2, 2), output, 12);
   reject(source, TargetInfo().makeAlphaType(kPremul_SkAlphaType), output, 12);
   reject(source, TargetInfo().makeColorSpace(nullptr), output, 12);
-  reject(source, TargetInfo(), base::span(output).first(23), 12);
+  reject(source, TargetInfo(), base::span(output).first(23u), 12);
   reject(source, TargetInfo(), output, 8);
   reject(SkPixmap(SourceInfo(), pixels_.data(), 16), TargetInfo(), output, 12);
 }
