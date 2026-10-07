@@ -2,9 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/*
+ * [INPUT]: VizTestSuite 的共享任务环境、SoftwareOutputDevice 和真实 Skia 画布。
+ * [OUTPUT]: Mideo 显式启用后 Alpha、Resize 及普通设备隔离的像素验收。
+ * [POS]: Viz 软件输出设备回归合同，由独立 Mideo 目标与 Viz 单测目标消费。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+ */
+
 #include "components/viz/service/display/software_output_device.h"
 
-#include "base/test/task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -13,7 +19,6 @@
 namespace viz {
 
 TEST(SoftwareOutputDeviceMideoTest, OptInPreservesAlphaAndSurvivesResize) {
-  base::test::TaskEnvironment task_environment;
   SoftwareOutputDevice device;
   EXPECT_FALSE(device.EnableMideoFrameOutput());
   device.Resize(gfx::Size(2, 2), 1.f);

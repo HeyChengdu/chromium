@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 /*
- * [INPUT]: 真实 Skia 像素绘制、Mideo 软件 Surface 提交与帧交付协议。
+ * [INPUT]: VizTestSuite 的共享任务环境、真实 Skia 像素绘制、Mideo 软件 Surface 提交与帧交付协议。
  * [OUTPUT]: 全不透明像素、临时 tile 视图及 Surface/Alpha/Resize 行为验收。
  * [POS]: Viz 软件 Mideo 定向测试目标，保留原绘制和呈现协议的回归守卫。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
@@ -19,7 +19,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/functional/bind.h"
 #include "base/test/null_task_runner.h"
-#include "base/test/task_environment.h"
 #include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
@@ -404,7 +403,6 @@ class MideoDisplayDamageTest : public testing::Test {
     ASSERT_EQ(device_->damage(), gfx::Rect(100, 100));
   }
 
-  base::test::TaskEnvironment environment_;
   const FrameSinkId sink_{61, 1};
   FrameSinkManagerImpl manager_{FrameSinkManagerImpl::InitParams()};
   CompositorFrameSinkSupport support_{nullptr, &manager_, sink_, true};
