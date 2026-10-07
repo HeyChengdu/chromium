@@ -2,6 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/*
+ * [INPUT]: 软件输出设备、聚合 Quad、SharedImage 读锁及已匹配 token 的 Mideo 请求。
+ * [OUTPUT]: 正常软件绘制、呈现与有界 Mideo 帧交付。
+ * [POS]: Viz DirectRenderer 软件实现，临时 tile 视图仅存在于同次同步绘制。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+ */
+
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_SOFTWARE_RENDERER_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_SOFTWARE_RENDERER_H_
 
@@ -102,7 +109,7 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
   void DrawRenderPassQuad(const AggregatedRenderPassDrawQuad* quad);
   void DrawSolidColorQuad(const SolidColorDrawQuad* quad);
   void DrawTextureQuad(const TextureDrawQuad* quad);
-  void DrawTileQuad(const TileDrawQuad* quad);
+  void DrawTileQuad(const TileDrawQuad* quad, bool clip_is_bw);
   void DrawUnsupportedQuad(const DrawQuad* quad);
   bool ShouldApplyBackdropFilters(
       const cc::FilterOperations* backdrop_filters,

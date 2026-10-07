@@ -2,6 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/*
+ * [INPUT]: 完整变换与剪裁的聚合 Quad、真实 SharedImage 像素和 Mideo 缓冲租约。
+ * [OUTPUT]: 软件呈现与原质量守卫下的帧交付；实像素核验仅优化授权目标绘制。
+ * [POS]: Viz 软件合成链路，临时 opaque 图像先于同次资源读锁销毁。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+ */
+
 #include "components/viz/service/display/software_renderer.h"
 
 #include <array>
@@ -409,7 +416,9 @@ void SoftwareRenderer::DoDrawQuad(const DrawQuad* quad,
       DrawTextureQuad(TextureDrawQuad::MaterialCast(quad));
       break;
     case DrawQuad::Material::kTiledContent:
-      DrawTileQuad(TileDrawQuad::MaterialCast(quad));
+      // 新画布的初始剪裁、scissor 与 draw_region 均为非AA；rounded 为AA。
+      DrawTileQuad(TileDrawQuad::MaterialCast(quad),
+                   !should_apply_rounded_corner);
       break;
     case DrawQuad::Material::kSurfaceContent:
       // Surface content should be fully resolved to other quad types before
@@ -551,7 +560,7 @@ void SoftwareRenderer::DrawTextureQuad(const TextureDrawQuad* quad) {
 
 DBG_FLAG_FBOOL("software.toggle.capture", software_toggle_capture)
 
-void SoftwareRenderer::DrawTileQuad(const TileDrawQuad* quad) {
+void SoftwareRenderer::DrawTileQuad(const TileDrawQuad* quad, bool clip_is_bw) {
   // |resource_provider_| can be NULL in resourceless software draws, which
   // should never produce tile quads in the first place.
   DCHECK(resource_provider_);
@@ -568,8 +577,21 @@ void SoftwareRenderer::DrawTileQuad(const TileDrawQuad* quad) {
   SkRect uv_rect = gfx::RectFToSkRect(visible_tex_coord_rect);
   SkSamplingOptions sampling(quad->nearest_neighbor ? SkFilterMode::kNearest
                                                     : SkFilterMode::kLinear);
+  const SkRect destination = gfx::RectToSkRect(quad->visible_rect);
+  // 只在精确 token 已授权的 Mideo Draw 尝试；普通帧保留原图像。
+  // 此别名后声明、先销毁，不替代 ScopedReadLockSkImage 的实际租约。
+  const auto opaque = pending_mideo_frame_
+                          ? MakeOpaqueMideoTileImage(
+                                lock.sk_image(), current_canvas_->imageInfo(),
+                                uv_rect, destination,
+                                current_canvas_->getTotalMatrix(), sampling,
+                                current_paint_, clip_is_bw)
+                          : nullptr;
+  if (opaque) {
+    TRACE_EVENT_INSTANT("viz", "Mideo.OpaqueTileView");
+  }
   current_canvas_->drawImageRect(
-      lock.sk_image(), uv_rect, gfx::RectToSkRect(quad->visible_rect), sampling,
+      opaque ? opaque.get() : lock.sk_image(), uv_rect, destination, sampling,
       &current_paint_, SkCanvas::kStrict_SrcRectConstraint);
 
   if (software_toggle_capture()) {

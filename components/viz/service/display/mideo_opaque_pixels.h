@@ -4,13 +4,14 @@
 
 /*
  * [INPUT]: Skia 可读像素、目标 BGRA 格式、有界输出区域及同次读锁内绘制参数。
- * [OUTPUT]: 全不透明无损写入结果与待验收的临时绘制视图接口；拒绝不改源或目标。
+ * [OUTPUT]: 实像素核验后的无损写入结果与同次读锁临时绘制视图；拒绝不改源或目标。
  * [POS]: 软件 Mideo 像素优化边界，通用 readPixels 与原 tile 绘制均由调用者保留。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_MIDEO_OPAQUE_PIXELS_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_MIDEO_OPAQUE_PIXELS_H_
 
+#include <cmath>
 #include <cstdint>
 
 #include "base/containers/span.h"
@@ -23,8 +24,7 @@
 
 namespace viz {
 
-// 待验收接口：只允许同次 SharedImage 读锁内创建、使用并销毁，不缓存视图。
-// 先以拒绝实现运行真实像素合同红灯；尚未接入 SoftwareRenderer。
+// 只允许同次 SharedImage 读锁内创建、同步绘制并销毁，不缓存视图或 Alpha。
 inline sk_sp<SkImage> MakeOpaqueMideoTileImage(
     const SkImage* image,
     const SkImageInfo& target,
@@ -34,7 +34,50 @@ inline sk_sp<SkImage> MakeOpaqueMideoTileImage(
     const SkSamplingOptions& sampling,
     const SkPaint& paint,
     bool clip_is_bw) {
-  return nullptr;
+  const auto integer = [](SkScalar value) {
+    // 限定精确整数范围，避免组合平移超出 Skia sprite 的整数坐标域。
+    return std::isfinite(value) && std::abs(value) <= (1 << 20) &&
+           value == std::floor(value);
+  };
+  const auto blend = paint.asBlendMode();
+  if (!image || !clip_is_bw || paint.isAntiAlias() ||
+      paint.getAlphaf() != 1.f || !blend ||
+      (*blend != SkBlendMode::kSrc && *blend != SkBlendMode::kSrcOver) ||
+      paint.getShader() || paint.getColorFilter() || paint.getMaskFilter() ||
+      paint.getImageFilter() || sampling.useCubic || sampling.maxAniso != 0 ||
+      sampling.filter != SkFilterMode::kNearest ||
+      sampling.mipmap != SkMipmapMode::kNone ||
+      (matrix.getType() & ~SkMatrix::kTranslate_Mask) ||
+      !integer(matrix.getTranslateX()) || !integer(matrix.getTranslateY()) ||
+      !destination_rect.isFinite() ||
+      !integer(destination_rect.left()) || !integer(destination_rect.top()) ||
+      !integer(destination_rect.right()) ||
+      !integer(destination_rect.bottom()) || target.width() <= 0 ||
+      target.height() <= 0 || target.colorType() != kBGRA_8888_SkColorType ||
+      target.alphaType() != kPremul_SkAlphaType || !target.colorSpace() ||
+      !target.colorSpace()->isSRGB()) {
+    return nullptr;
+  }
+  SkPixmap source;
+  if (!image->peekPixels(&source) || !source.addr() || source.width() <= 0 ||
+      source.height() <= 0 || source.width() > (1 << 20) ||
+      source.height() > (1 << 20) ||
+      source.colorType() != kBGRA_8888_SkColorType ||
+      source.alphaType() != kPremul_SkAlphaType || !source.colorSpace() ||
+      !source.colorSpace()->isSRGB() ||
+      !SkColorSpace::Equals(source.colorSpace(), target.colorSpace()) ||
+      source.rowBytes() != source.info().minRowBytes() ||
+      reinterpret_cast<uintptr_t>(source.addr()) % alignof(uint32_t) != 0 ||
+      source_rect != SkRect::MakeWH(source.width(), source.height()) ||
+      destination_rect.width() != source.width() ||
+      destination_rect.height() != source.height() ||
+      !source.computeIsOpaque()) {
+    return nullptr;
+  }
+  // 原图像及 SharedImage 的 Premul 契约不变；别名不承担像素租约。
+  const SkPixmap opaque(source.info().makeAlphaType(kOpaque_SkAlphaType),
+                        source.addr(), source.rowBytes());
+  return SkImages::RasterFromPixmap(opaque, nullptr, nullptr);
 }
 
 // 所有格式和容量检查均在扫描前完成，Alpha 检查均在写入前完成。

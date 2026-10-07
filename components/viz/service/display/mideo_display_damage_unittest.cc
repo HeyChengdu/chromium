@@ -38,6 +38,9 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkColorFilter.h"
+#include "third_party/skia/include/core/SkPath.h"
+#include "third_party/skia/include/core/SkShader.h"
 
 namespace viz {
 namespace {
@@ -50,7 +53,8 @@ class MideoOpaquePixelsTest : public testing::Test {
         SkPixmap(SourceInfo(), pixels_.data(), 12), nullptr, nullptr);
   }
 
-  sk_sp<SkImage> TileView(const SkImage* image, const SkPaint& paint = SkPaint(),
+  sk_sp<SkImage> TileView(const SkImage* image,
+                        const SkPaint& paint = SkPaint(),
                         bool clip_is_bw = true) {
     return MakeOpaqueMideoTileImage(
         image, SourceInfo(), SkRect::MakeWH(3, 2),
@@ -59,14 +63,18 @@ class MideoOpaquePixelsTest : public testing::Test {
   }
 
   std::array<uint8_t, 192> DrawImage(const SkImage* image,
-                                    const SkPaint& paint, bool clipped) {
+                                   const SkPaint& paint, int clip) {
     SkBitmap bitmap;
     bitmap.allocPixels(SourceInfo().makeWH(8, 6));
     bitmap.eraseARGB(255, 29, 53, 97);
     SkCanvas canvas(bitmap);
-    if (clipped) {
+    if (clip == 1) {
       canvas.clipRect(SkRect::MakeXYWH(2, 1, 3, 3),
                       SkClipOp::kIntersect, false);
+    } else if (clip == 2) {
+      const SkPoint points[] = {{1, 1}, {5, 1}, {2, 5}};
+      canvas.clipPath(SkPath::Polygon(points, true), SkClipOp::kIntersect,
+                      false);
     }
     canvas.setMatrix(SkMatrix::Translate(1, 1));
     canvas.drawImageRect(image, SkRect::MakeWH(3, 2),
@@ -103,10 +111,10 @@ TEST_F(MideoOpaquePixelsTest, userDrawsVerifiedOpaqueTilePixelsExactly) {
     // When 同次读取创建只读视图，绘制参数保持相同。
     const auto view = TileView(source.get(), paint);
     ASSERT_TRUE(view);
-    for (bool clipped : {false, true}) {
+    for (int clip : {0, 1, 2}) {
       // Then 完整目标每字节相同，原 Premul 源与像素不变。
-      EXPECT_EQ(DrawImage(source.get(), paint, clipped),
-                DrawImage(view.get(), paint, clipped));
+      EXPECT_EQ(DrawImage(source.get(), paint, clip),
+                DrawImage(view.get(), paint, clip));
     }
     EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
     EXPECT_EQ(pixels_, original);
@@ -162,6 +170,12 @@ TEST_F(MideoOpaquePixelsTest, userKeepsTileFallbackOutsideVerifiedDrawBounds) {
   reject(src, dst, SkMatrix::Scale(2, 2), nearest, paint, true);
   reject(src, dst, matrix, SkSamplingOptions(SkFilterMode::kLinear), paint,
          true);
+  reject(src, dst, matrix,
+         SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNearest),
+         paint, true);
+  reject(src, dst, matrix, SkSamplingOptions(SkCubicResampler::Mitchell()),
+         paint, true);
+  reject(src, dst, matrix, SkSamplingOptions::Aniso(2), paint, true);
   paint.setAntiAlias(true);
   reject(src, dst, matrix, nearest, paint, true);
   paint.reset();
@@ -170,12 +184,19 @@ TEST_F(MideoOpaquePixelsTest, userKeepsTileFallbackOutsideVerifiedDrawBounds) {
   paint.reset();
   paint.setBlendMode(SkBlendMode::kMultiply);
   reject(src, dst, matrix, nearest, paint, true);
+  paint.reset();
+  paint.setShader(SkShaders::Color(SK_ColorRED));
+  reject(src, dst, matrix, nearest, paint, true);
+  paint.reset();
+  paint.setColorFilter(SkColorFilters::Blend(SK_ColorRED, SkBlendMode::kSrc));
+  reject(src, dst, matrix, nearest, paint, true);
 }
 
 TEST_F(MideoOpaquePixelsTest, userRejectsUnknownTilePixelContracts) {
   const auto original = pixels_;
   EXPECT_FALSE(TileView(nullptr));
   for (auto info : {SourceInfo().makeColorSpace(nullptr),
+                    SourceInfo().makeColorSpace(SkColorSpace::MakeSRGBLinear()),
                     SourceInfo().makeColorType(kRGBA_8888_SkColorType),
                     SourceInfo().makeAlphaType(kUnpremul_SkAlphaType)}) {
     const auto image = SkImages::RasterFromPixmap(
@@ -183,6 +204,23 @@ TEST_F(MideoOpaquePixelsTest, userRejectsUnknownTilePixelContracts) {
     ASSERT_TRUE(image);
     EXPECT_FALSE(TileView(image.get()));
   }
+  const auto source = SourceImage();
+  ASSERT_TRUE(source);
+  for (auto target : {SourceInfo().makeColorSpace(nullptr),
+                      SourceInfo().makeColorType(kRGBA_8888_SkColorType),
+                      SourceInfo().makeAlphaType(kUnpremul_SkAlphaType),
+                      SourceInfo().makeWH(0, 2)}) {
+    EXPECT_FALSE(MakeOpaqueMideoTileImage(
+        source.get(), target, SkRect::MakeWH(3, 2), SkRect::MakeWH(3, 2),
+        SkMatrix::I(), SkSamplingOptions(), SkPaint(), true));
+  }
+  alignas(4) std::array<uint8_t, 32> padded{};
+  std::copy_n(pixels_.begin(), 12, padded.begin());
+  std::copy_n(pixels_.begin() + 12, 12, padded.begin() + 16);
+  const auto padded_image = SkImages::RasterFromPixmap(
+      SkPixmap(SourceInfo(), padded.data(), 16), nullptr, nullptr);
+  ASSERT_TRUE(padded_image);
+  EXPECT_FALSE(TileView(padded_image.get()));
   EXPECT_EQ(pixels_, original);
 }
 

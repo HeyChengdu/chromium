@@ -1,3 +1,7 @@
+# [INPUT]: 固定源码 SHA、同 SHA checkpoint、Release 参数及六 worker 构建预算。
+# [OUTPUT]: 定向像素/租约门禁、完整 Shell/runtime 与基础质量证据。
+# [POS]: Mideo 免费 Linux Actions 验收入口，红绿与完整构建按源码身份隔离。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
 name: Build Mideo Headless Shell
 
 on:
@@ -239,7 +243,7 @@ jobs:
         working-directory: src
         run: |
           autoninja -C out/Mideo -j 6 mideo_software_output_device_unittests
-          out/Mideo/mideo_software_output_device_unittests --test-launcher-jobs=1 --gtest_filter=SoftwareOutputDeviceMideoTest.*:MideoDisplayDamageTest.*:MideoOpaquePixelsTest.*
+          out/Mideo/mideo_software_output_device_unittests --test-launcher-jobs=1 --gtest_filter=SoftwareOutputDeviceMideoTest.*:MideoDisplayDamageTest.*:MideoOpaquePixelsTest.*:DisplayResourceProviderSoftwareTest.userKeepsRealTileLeaseUntilSynchronousDrawEnds
 
       - name: Build headless shell with six workers
         if: ${{ inputs.compile_check_only != true }}

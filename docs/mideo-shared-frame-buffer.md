@@ -14,9 +14,9 @@ Mideo 教学时间轴 → Browser 强制重绘 + 新 Surface
 没有 10ms/帧达标结论，也没有对既有正式视频的兼容性验收结论。
 本地只编辑源码和运行宿主协议测试，原生构建仅在 GitHub Actions 执行。
 
-### Tile 临时不透明视图合同：红灯阶段
+### Tile 临时不透明视图候选：等待绿灯验收
 
-`MakeOpaqueMideoTileImage` 当前是拒绝所有输入的待验收接口，尚未接入 `SoftwareRenderer`。新增真实 Skia 绘制合同将完整输出逐字节比较，并检查源 Premul/像素不变、同存储每次重新扫描、透明与未知格式拒绝，以及矩阵、采样、paint 和非AA剪裁边界。先由定向 Actions 实际编译和链接证明正向合同红灯，已有 Surface/Alpha/Resize 与读取像素验收仍保留；不能把未运行测试当通过。
+拒绝 stub 的定向 Actions `37623622643` 已实际编译 `software_renderer.o`、完成测试目标链接并运行 25 个独立合同：仅两个新增正向视图合同因返回空值红灯，其余 23 个通过。实现候选每次扫描实际 Alpha，创建同次只读 opaque 别名，仅在精确 token 已授权的 Mideo 目标 Draw 中尝试；普通帧仍使用原图像。完整 source、destination、CTM、采样、paint 与 strict source 绘制参数原样保留。新增真实 SharedImage 资源归还测试验证读锁内同步绘制及视图先销毁；实现和扩展合同尚待新 SHA 的定向 Actions 绿灯，不能把未运行测试当通过。
 
 候选首轮仅在 Tile 同次 SharedImage 读锁内创建和销毁临时 view，不缓存 Alpha 或资源 ID；完整 source、等大整数平移 destination、完整有限整数平移 CTM、nearest、无AA及过滤器、满 alpha、Src/SrcOver、已证明非AA clip链之外均保留原绘制。Texture 背景混合不纳入。后续还必须证明真实租约边界并完成同源码完整 Release/基础质量、实际 runtime 身份与真实课程端到端验收；view 选择不代表实际 memcpy 或每帧 10ms 达标。
 

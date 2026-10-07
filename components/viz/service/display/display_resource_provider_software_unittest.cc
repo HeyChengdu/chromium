@@ -2,6 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/*
+ * [INPUT]: 真实软件 SharedImage、资源跨父子传输与 ScopedReadLockSkImage。
+ * [OUTPUT]: 软件读像素及临时 opaque 视图的租约与归还验收。
+ * [POS]: DisplayResourceProviderSoftware 契约测试，验证实际 GPU 服务资源生命周期。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+ */
+
 #include "components/viz/service/display/display_resource_provider_software.h"
 
 #include <stddef.h>
@@ -23,6 +30,7 @@
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/resources/release_callback.h"
 #include "components/viz/common/resources/returned_resource.h"
+#include "components/viz/service/display/mideo_opaque_pixels.h"
 #include "components/viz/service/gl/gpu_service_impl.h"
 #include "components/viz/test/test_in_process_context_provider.h"
 #include "gpu/command_buffer/client/client_shared_image.h"
@@ -31,6 +39,7 @@
 #include "gpu/command_buffer/service/shared_image/shared_image_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/gfx/geometry/rect.h"
 
 using testing::_;
@@ -176,6 +185,84 @@ TEST_F(DisplayResourceProviderSoftwareTest, ReadSoftwareResources) {
 
   EXPECT_CALL(release_callback, Released(_, _, false));
   child_resource_provider_->RemoveImportedResource(resource_id);
+}
+
+TEST_F(DisplayResourceProviderSoftwareTest,
+       userKeepsRealTileLeaseUntilSynchronousDrawEnds) {
+  InitializeProvider();
+  auto* interface = child_context_provider_->SharedImageInterface();
+  std::vector<ReturnedResource> returned;
+  const int child = resource_provider_->CreateChild(
+      base::BindRepeating(&CollectResources, &returned), SurfaceId());
+  auto released = std::make_shared<int>(0);
+  for (uint32_t value : {0xff112233u, 0u}) {
+    // Given 真实软件 SharedImage；第二次资源是全透明像素，不能复用旧证明。
+    const gfx::Size size(3, 2);
+    auto shared_image = interface->CreateSharedImageForSoftwareCompositor(
+        {SinglePlaneFormat::kBGRA_8888, size, gfx::ColorSpace::CreateSRGB(),
+         gpu::SHARED_IMAGE_USAGE_CPU_WRITE_ONLY, "MideoTileLeaseTest"});
+    {
+      auto mapping = shared_image->Map();
+      ASSERT_TRUE(mapping);
+      SkPixmap pixels(SkImageInfo::Make(3, 2, kBGRA_8888_SkColorType,
+                                      kPremul_SkAlphaType,
+                                      SkColorSpace::MakeSRGB()),
+                      mapping->GetMemoryForPlane(0).data(), 12);
+      ASSERT_TRUE(pixels.erase(value));
+    }
+    const auto resource = child_resource_provider_->ImportResource(
+        TransferableResource::Make(
+            shared_image, TransferableResource::ResourceSource::kTileRasterTask,
+            interface->GenVerifiedSyncToken()),
+        base::BindOnce(
+            [](std::shared_ptr<int> count, const gpu::SyncToken&, bool lost) {
+              EXPECT_FALSE(lost);
+              ++*count;
+            },
+            released));
+    std::vector<TransferableResource> sent;
+    child_resource_provider_->PrepareSendToParent({resource}, &sent, interface);
+    resource_provider_->ReceiveFromChild(child, sent);
+    const auto parent_resource =
+        resource_provider_->GetChildToParentMap(child).at(resource);
+    const int released_before = *released;
+    {
+      DisplayResourceProviderSoftware::ScopedReadLockSkImage lock(
+          resource_provider_.get(), parent_resource);
+      ASSERT_TRUE(lock.valid());
+      SkBitmap target;
+      target.allocPixels(SkImageInfo::Make(
+          3, 2, kBGRA_8888_SkColorType, kPremul_SkAlphaType,
+          SkColorSpace::MakeSRGB()));
+      target.eraseColor(SK_ColorTRANSPARENT);
+      SkPaint paint;
+      const SkSamplingOptions sampling(SkFilterMode::kNearest);
+      const auto rect = SkRect::MakeWH(3, 2);
+      const auto view = MakeOpaqueMideoTileImage(
+          lock.sk_image(), target.info(), rect, rect, SkMatrix::I(), sampling,
+          paint, true);
+      EXPECT_EQ(bool(view), value != 0);
+      EXPECT_EQ(lock.sk_image()->alphaType(), kPremul_SkAlphaType);
+      // When 消费者不再使用资源，实际读锁内归还仍必须延后。
+      resource_provider_->DeclareUsedResourcesFromChild(child, ResourceIdSet());
+      EXPECT_TRUE(returned.empty());
+      EXPECT_EQ(*released, released_before);
+      SkCanvas canvas(target);
+      canvas.drawImageRect(view ? view.get() : lock.sk_image(), rect, rect,
+                           sampling, &paint, SkCanvas::kStrict_SrcRectConstraint);
+      // Then 同步绘制完整像素正确，视图在读锁之前销毁。
+      for (int y = 0; y < 2; ++y) {
+        for (int x = 0; x < 3; ++x) {
+          EXPECT_EQ(*target.getAddr32(x, y), value);
+        }
+      }
+    }
+    ASSERT_EQ(returned.size(), 1u);
+    child_resource_provider_->ReceiveReturnsFromParent(std::move(returned));
+    returned.clear();
+    child_resource_provider_->RemoveImportedResource(resource);
+    EXPECT_EQ(*released, released_before + 1);
+  }
 }
 
 }  // namespace

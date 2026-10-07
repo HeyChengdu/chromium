@@ -2,6 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# [INPUT]: Viz 服务源码、软件输出/Surface/SharedImage 读锁合同及 GN 依赖。
+# [OUTPUT]: Viz 服务与包含真实 tile 租约验收的 Mideo 独立测试目标。
+# [POS]: Viz service 构建入口，定向目标复用真实服务及测试基础设施。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+
 import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//components/viz/viz.gni")
@@ -605,6 +610,7 @@ viz_component("service") {
 # 软件导出契约可以独立执行，不要求先链接整个浏览器或 viz_unittests。
 viz_test("mideo_software_output_device_unittests") {
   sources = [
+    "display/display_resource_provider_software_unittest.cc",
     "display/mideo_display_damage_unittest.cc",
     "display/software_output_device_unittest.cc",
   ]
@@ -614,10 +620,12 @@ viz_test("mideo_software_output_device_unittests") {
     "//base",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
+    "//components/viz/client",
     "//components/viz/common",
     "//components/viz/test:test_support",
     "//gpu/command_buffer/service",
     "//skia",
+    "//testing/gmock",
     "//testing/gtest",
     "//ui/gfx",
     "//ui/gfx/geometry",
