@@ -2,6 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/*
+ * [INPUT]: 真实 Skia 像素绘制、Mideo 软件 Surface 提交与帧交付协议。
+ * [OUTPUT]: 全不透明像素、临时 tile 视图及 Surface/Alpha/Resize 行为验收。
+ * [POS]: Viz 软件 Mideo 定向测试目标，保留原绘制和呈现协议的回归守卫。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+ */
+
 #include "components/viz/service/display/display.h"
 
 #include <algorithm>
@@ -29,6 +36,7 @@
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
 
 namespace viz {
@@ -37,6 +45,39 @@ namespace {
 // 此边界直接检查真实像素和输出，不替换 Skia，也不以背景颜色推断 Alpha。
 class MideoOpaquePixelsTest : public testing::Test {
  protected:
+  sk_sp<SkImage> SourceImage() {
+    return SkImages::RasterFromPixmap(
+        SkPixmap(SourceInfo(), pixels_.data(), 12), nullptr, nullptr);
+  }
+
+  sk_sp<SkImage> TileView(const SkImage* image, const SkPaint& paint = SkPaint(),
+                        bool clip_is_bw = true) {
+    return MakeOpaqueMideoTileImage(
+        image, SourceInfo(), SkRect::MakeWH(3, 2),
+        SkRect::MakeXYWH(1, 1, 3, 2), SkMatrix::Translate(1, 1),
+        SkSamplingOptions(SkFilterMode::kNearest), paint, clip_is_bw);
+  }
+
+  std::array<uint8_t, 192> DrawImage(const SkImage* image,
+                                    const SkPaint& paint, bool clipped) {
+    SkBitmap bitmap;
+    bitmap.allocPixels(SourceInfo().makeWH(8, 6));
+    bitmap.eraseARGB(255, 29, 53, 97);
+    SkCanvas canvas(bitmap);
+    if (clipped) {
+      canvas.clipRect(SkRect::MakeXYWH(2, 1, 3, 3),
+                      SkClipOp::kIntersect, false);
+    }
+    canvas.setMatrix(SkMatrix::Translate(1, 1));
+    canvas.drawImageRect(image, SkRect::MakeWH(3, 2),
+                         SkRect::MakeXYWH(1, 1, 3, 2),
+                         SkSamplingOptions(SkFilterMode::kNearest), &paint,
+                         SkCanvas::kStrict_SrcRectConstraint);
+    std::array<uint8_t, 192> output{};
+    EXPECT_TRUE(bitmap.readPixels(bitmap.info(), output.data(), 32, 0, 0));
+    return output;
+  }
+
   SkImageInfo SourceInfo() const {
     return SkImageInfo::Make(3, 2, kBGRA_8888_SkColorType,
                              kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
@@ -50,6 +91,100 @@ class MideoOpaquePixelsTest : public testing::Test {
       1, 37, 253, 255, 0, 255, 17, 255, 255, 0, 123, 255,
       64, 128, 192, 255, 7, 11, 13, 255, 239, 241, 251, 255};
 };
+
+TEST_F(MideoOpaquePixelsTest, userDrawsVerifiedOpaqueTilePixelsExactly) {
+  // Given 实际非均匀 Premul 像素和非空目标背景，包含局部非AA剪裁。
+  const auto source = SourceImage();
+  ASSERT_TRUE(source);
+  const auto original = pixels_;
+  for (const auto blend : {SkBlendMode::kSrc, SkBlendMode::kSrcOver}) {
+    SkPaint paint;
+    paint.setBlendMode(blend);
+    // When 同次读取创建只读视图，绘制参数保持相同。
+    const auto view = TileView(source.get(), paint);
+    ASSERT_TRUE(view);
+    for (bool clipped : {false, true}) {
+      // Then 完整目标每字节相同，原 Premul 源与像素不变。
+      EXPECT_EQ(DrawImage(source.get(), paint, clipped),
+                DrawImage(view.get(), paint, clipped));
+    }
+    EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
+    EXPECT_EQ(pixels_, original);
+  }
+}
+
+TEST_F(MideoOpaquePixelsTest, userRechecksEveryTileAlphaOnEachRead) {
+  // Given 同一存储地址，前次读访问全部不透明，结束后释放只读图像。
+  {
+    const auto source = SourceImage();
+    ASSERT_TRUE(source);
+    ASSERT_TRUE(TileView(source.get()));
+  }
+  for (size_t index = 3; index < pixels_.size(); index += 4) {
+    // When 下一次读取实际像素变为合法 Premul 半透明或全透明。
+    const auto original = pixels_;
+    pixels_[index - 3] = pixels_[index - 2] = pixels_[index - 1] = 0;
+    for (uint8_t alpha : {uint8_t{254}, uint8_t{0}}) {
+      pixels_[index] = alpha;
+      // Then 新读访问必须拒绝，不复用同地址的旧 Alpha 证明。
+      const auto source = SourceImage();
+      ASSERT_TRUE(source);
+      EXPECT_FALSE(TileView(source.get()));
+      EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
+    }
+    pixels_ = original;
+  }
+}
+
+TEST_F(MideoOpaquePixelsTest, userKeepsTileFallbackOutsideVerifiedDrawBounds) {
+  const auto image = SourceImage();
+  ASSERT_TRUE(image);
+  const auto original = pixels_;
+  const auto reject = [&](const SkRect& src, const SkRect& dst,
+                          const SkMatrix& matrix,
+                          const SkSamplingOptions& sampling,
+                          const SkPaint& paint, bool clip_is_bw) {
+    EXPECT_FALSE(MakeOpaqueMideoTileImage(
+        image.get(), SourceInfo(), src, dst, matrix, sampling, paint,
+        clip_is_bw));
+    EXPECT_EQ(pixels_, original);
+  };
+  const auto src = SkRect::MakeWH(3, 2);
+  const auto dst = SkRect::MakeXYWH(1, 1, 3, 2);
+  const auto matrix = SkMatrix::Translate(1, 1);
+  const SkSamplingOptions nearest(SkFilterMode::kNearest);
+  SkPaint paint;
+  reject(src, dst, matrix, nearest, paint, false);
+  reject(SkRect::MakeWH(2, 2), dst, matrix, nearest, paint, true);
+  reject(src, SkRect::MakeXYWH(1.5f, 1, 3, 2), matrix, nearest, paint, true);
+  reject(src, SkRect::MakeWH(6, 4), matrix, nearest, paint, true);
+  reject(src, dst, SkMatrix::Translate(0.5f, 0), nearest, paint, true);
+  reject(src, dst, SkMatrix::Scale(2, 2), nearest, paint, true);
+  reject(src, dst, matrix, SkSamplingOptions(SkFilterMode::kLinear), paint,
+         true);
+  paint.setAntiAlias(true);
+  reject(src, dst, matrix, nearest, paint, true);
+  paint.reset();
+  paint.setAlpha(254);
+  reject(src, dst, matrix, nearest, paint, true);
+  paint.reset();
+  paint.setBlendMode(SkBlendMode::kMultiply);
+  reject(src, dst, matrix, nearest, paint, true);
+}
+
+TEST_F(MideoOpaquePixelsTest, userRejectsUnknownTilePixelContracts) {
+  const auto original = pixels_;
+  EXPECT_FALSE(TileView(nullptr));
+  for (auto info : {SourceInfo().makeColorSpace(nullptr),
+                    SourceInfo().makeColorType(kRGBA_8888_SkColorType),
+                    SourceInfo().makeAlphaType(kUnpremul_SkAlphaType)}) {
+    const auto image = SkImages::RasterFromPixmap(
+        SkPixmap(info, pixels_.data(), 12), nullptr, nullptr);
+    ASSERT_TRUE(image);
+    EXPECT_FALSE(TileView(image.get()));
+  }
+  EXPECT_EQ(pixels_, original);
+}
 
 TEST_F(MideoOpaquePixelsTest, userCopiesEveryOpaquePixelWithoutChangingGuards) {
   // Given 非均匀、全不透明的真实 BGRA/Premul/sRGB 像素。
