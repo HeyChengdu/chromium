@@ -22,6 +22,8 @@ Mideo 教学时间轴 → Browser 强制重绘 + 新 Surface
 
 实现定向 Actions `37647281525` 在新增资源租约测试的编译阶段失败：公共像素头使用 `SkBlendMode` 枚举值，却仅通过 `SkPaint.h` 获得前置声明。测试目标未链接，26 个合同未执行。修复仅补充公共头直接依赖 `SkBlendMode.h`，继续以新源码 SHA 无 checkpoint 的定向 Actions 验证。
 
+头依赖修复后的 `37661714585` 已实际完成测试目标链接；新增真实租约测试在 `TestGpuServiceHolder` 构造阶段访问未初始化的 Ozone 平台而崩溃，同批 9 个合同未运行，其余 16 个通过。独立目标改用既有 Viz 测试入口及 `VizTestSuite`，初始化真实平台、GL 与 Mojo，并在无显示服务器的 CI 指定 headless Ozone。租约与像素断言保持，继续等待新 SHA 定向验收；不能将未运行的 opaque 合同称为绿灯。
+
 只支持 Linux x64、软件合成、固定画幅、sRGB、无缩放完整 viewport。
 GPU、缩放、越界、像素尺寸不匹配会失败，不暗中回退 PNG 或复用上一帧。
 普通截图路径及 Mideo 默认发布设置保持原实现，候选路径需要显式启用。
