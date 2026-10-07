@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 /*
- * [INPUT]: Skia 可读像素、目标 BGRA 格式、有界输出区域及同次读锁内绘制参数。
+ * [INPUT]: Skia 可读像素、混合模式完整定义、目标 BGRA 格式及同次读锁内绘制参数。
  * [OUTPUT]: 实像素核验后的无损写入结果与同次读锁临时绘制视图；拒绝不改源或目标。
  * [POS]: 软件 Mideo 像素优化边界，通用 readPixels 与原 tile 绘制均由调用者保留。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "base/containers/span.h"
+#include "third_party/skia/include/core/SkBlendMode.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkMatrix.h"

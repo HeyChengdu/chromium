@@ -20,6 +20,8 @@ Mideo 教学时间轴 → Browser 强制重绘 + 新 Surface
 
 候选首轮仅在 Tile 同次 SharedImage 读锁内创建和销毁临时 view，不缓存 Alpha 或资源 ID；完整 source、等大整数平移 destination、完整有限整数平移 CTM、nearest、无AA及过滤器、满 alpha、Src/SrcOver、已证明非AA clip链之外均保留原绘制。Texture 背景混合不纳入。后续还必须证明真实租约边界并完成同源码完整 Release/基础质量、实际 runtime 身份与真实课程端到端验收；view 选择不代表实际 memcpy 或每帧 10ms 达标。
 
+实现定向 Actions `37647281525` 在新增资源租约测试的编译阶段失败：公共像素头使用 `SkBlendMode` 枚举值，却仅通过 `SkPaint.h` 获得前置声明。测试目标未链接，26 个合同未执行。修复仅补充公共头直接依赖 `SkBlendMode.h`，继续以新源码 SHA 无 checkpoint 的定向 Actions 验证。
+
 只支持 Linux x64、软件合成、固定画幅、sRGB、无缩放完整 viewport。
 GPU、缩放、越界、像素尺寸不匹配会失败，不暗中回退 PNG 或复用上一帧。
 普通截图路径及 Mideo 默认发布设置保持原实现，候选路径需要显式启用。
