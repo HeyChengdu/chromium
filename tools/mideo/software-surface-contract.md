@@ -28,6 +28,19 @@ opaque 源到 unpremul 目标不需要反预乘，SkConvertPixels 可走 rect_me
 链接或执行测试，不能计为预期行为红灯。完整日志保存为
 `/tmp/mideo-gate-37488790510.log`，修复后仍先执行同一红灯门禁。
 
+修复后的 `37503725454` 完成生产对象编译和 16351/16351 真实测试链接，
+实际执行 21 项测试，仅全不透明复制用例因返回 false 失败，其他 20 项通过。
+这是预期行为红灯，完整日志 `/tmp/mideo-gate-37503725454.log`。
+
+最小候选在原 WriteMideoFrame 格式和共享内存边界检查之后 peekPixels；
+辅助函数严格拒绝格式、颜色空间、Alpha、尺寸、紧密步长、源地址对齐或输出
+容量不匹配。computeIsOpaque 验证全部实际像素为 255 后，仅创建本次只读
+opaque 视图，调用固定 Skia 的无转换复制分支；不修改源画布 Alpha 元数据。
+任何拒绝或 peek 失败仍调用原 canvas->readPixels。原 Mideo.ReadPixels
+计时包含扫描与复制，成功后 Mideo.OpaqueCopy 只标识实际命中，不是性能指标。
+正常 Draw、目标全重建、token 和 copy+presentation 均保持原行为。
+候选仍待 Actions 定向绿灯及新源码完整构建，没有新 runtime 或性能收益结论。
+
 ## 2026-10-03 真实课程 10ms 主线的损伤边界验收
 
 有效同机课程窗口显示目标帧提交被先前 Viz 绘制阻塞。现有 Display 在待交付

@@ -32,6 +32,7 @@
 #include "components/viz/common/skia_helper.h"
 #include "components/viz/common/viz_utils.h"
 #include "components/viz/service/debugger/viz_debugger.h"
+#include "components/viz/service/display/mideo_opaque_pixels.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display/output_surface_frame.h"
 #include "components/viz/service/display/renderer_utils.h"
@@ -194,6 +195,12 @@ bool SoftwareRenderer::WriteMideoFrame(SkCanvas* canvas,
       request.size.width(), request.size.height(), kBGRA_8888_SkColorType,
       kUnpremul_SkAlphaType, SkColorSpace::MakeSRGB());
   TRACE_EVENT("viz", "Mideo.ReadPixels");
+  SkPixmap source;
+  if (canvas->peekPixels(&source) &&
+      CopyOpaqueMideoPixels(source, info, destination, stride)) {
+    TRACE_EVENT_INSTANT("viz", "Mideo.OpaqueCopy");
+    return true;
+  }
   return canvas->readPixels(info, destination.data(), stride, 0, 0);
 }
 
