@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: VizTestSuite 的共享任务环境、真实 Skia 像素绘制、Mideo 软件 Surface 提交与帧交付协议。
- * [OUTPUT]: 全不透明像素、临时 tile 视图及 Surface/Alpha/Resize 行为验收。
+ * [OUTPUT]: 全不透明像素、nearest/linear 临时 tile 视图及 Surface/Alpha/Resize 行为验收。
  * [POS]: Viz 软件 Mideo 定向测试目标，保留原绘制和呈现协议的回归守卫。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -62,7 +62,9 @@ class MideoOpaquePixelsTest : public testing::Test {
   }
 
   std::array<uint8_t, 192> DrawImage(const SkImage* image,
-                                   const SkPaint& paint, int clip) {
+                                   const SkPaint& paint, int clip,
+                                   SkFilterMode filter = SkFilterMode::kNearest,
+                                   int translation = 1) {
     SkBitmap bitmap;
     bitmap.allocPixels(SourceInfo().makeWH(8, 6));
     bitmap.eraseARGB(255, 29, 53, 97);
@@ -75,10 +77,10 @@ class MideoOpaquePixelsTest : public testing::Test {
       canvas.clipPath(SkPath::Polygon(points, true), SkClipOp::kIntersect,
                       false);
     }
-    canvas.setMatrix(SkMatrix::Translate(1, 1));
+    canvas.setMatrix(SkMatrix::Translate(translation, translation));
     canvas.drawImageRect(image, SkRect::MakeWH(3, 2),
                          SkRect::MakeXYWH(1, 1, 3, 2),
-                         SkSamplingOptions(SkFilterMode::kNearest), &paint,
+                         SkSamplingOptions(filter), &paint,
                          SkCanvas::kStrict_SrcRectConstraint);
     std::array<uint8_t, 192> output{};
     EXPECT_TRUE(bitmap.readPixels(bitmap.info(), output.data(), 32, 0, 0));
@@ -117,6 +119,35 @@ TEST_F(MideoOpaquePixelsTest, userDrawsVerifiedOpaqueTilePixelsExactly) {
     }
     EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
     EXPECT_EQ(pixels_, original);
+  }
+}
+
+TEST_F(MideoOpaquePixelsTest, userDrawsLinearOpaqueTilePixelsExactly) {
+  // Given 高频不均匀源和非空背景，原采样为 linear，完整整数映射。
+  const auto source = SourceImage();
+  ASSERT_TRUE(source);
+  const auto original = pixels_;
+  for (const auto blend : {SkBlendMode::kSrc, SkBlendMode::kSrcOver}) {
+    SkPaint paint;
+    paint.setBlendMode(blend);
+    for (int translation : {-1, 0, 1}) {
+      // When 在本次读访问内创建视图，保留 linear 和正负整数平移。
+      const auto view = MakeOpaqueMideoTileImage(
+          source.get(), SourceInfo(), SkRect::MakeWH(3, 2),
+          SkRect::MakeXYWH(1, 1, 3, 2),
+          SkMatrix::Translate(translation, translation),
+          SkSamplingOptions(SkFilterMode::kLinear), paint, true);
+      ASSERT_TRUE(view);
+      for (int clip : {0, 1, 2}) {
+        // Then 整幅目标含边缘、剪裁及未绘制区域逐字节一致。
+        EXPECT_EQ(DrawImage(source.get(), paint, clip,
+                            SkFilterMode::kLinear, translation),
+                  DrawImage(view.get(), paint, clip,
+                            SkFilterMode::kLinear, translation));
+      }
+      EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
+      EXPECT_EQ(pixels_, original);
+    }
   }
 }
 
