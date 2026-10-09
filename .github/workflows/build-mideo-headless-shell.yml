@@ -1,5 +1,5 @@
 # [INPUT]: 固定源码 SHA、同 SHA checkpoint、Release 参数及 headless Viz 合同环境。
-# [OUTPUT]: 定向像素/租约门禁、完整 Shell/runtime 与基础质量证据。
+# [OUTPUT]: 定向像素/租约门禁、完整 Shell/runtime、基础质量证据与有界重试 checkpoint。
 # [POS]: Mideo 免费 Linux Actions 验收入口，红绿与完整构建按源码身份隔离。
 # [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
 name: Build Mideo Headless Shell
@@ -275,7 +275,21 @@ jobs:
           sha256sum inputs.json.gz out.tar.zst > SHA256SUMS
 
       - uses: actions/upload-artifact@v4
+        id: checkpoint_upload
+        continue-on-error: true
         if: ${{ steps.build.outputs.exit_code == '124' }}
+        with:
+          name: mideo-checkpoint-${{ env.BUILD_COMMIT }}
+          path: checkpoint/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Retry checkpoint upload after transport failure
+        id: checkpoint_upload_retry
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        if: ${{ steps.build.outputs.exit_code == '124' && steps.checkpoint_upload.outcome == 'failure' }}
         with:
           name: mideo-checkpoint-${{ env.BUILD_COMMIT }}
           path: checkpoint/
@@ -286,6 +300,10 @@ jobs:
       - name: Mark checkpoint continuation required
         if: ${{ steps.build.outputs.exit_code == '124' }}
         run: |
+          if [ '${{ steps.checkpoint_upload.outcome }}' != success ] && [ '${{ steps.checkpoint_upload_retry.outcome }}' != success ]; then
+            echo 'checkpoint 上传未确认成功，禁止使用本次 run 续跑。'
+            exit 1
+          fi
           echo '编译窗口结束，checkpoint已保存；使用相同提交和本次run ID续跑。'
           exit 1
 
