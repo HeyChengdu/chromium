@@ -54,11 +54,12 @@ class MideoOpaquePixelsTest : public testing::Test {
 
   sk_sp<SkImage> TileView(const SkImage* image,
                         const SkPaint& paint = SkPaint(),
-                        bool clip_is_bw = true) {
+                        bool clip_is_bw = true,
+                        SkFilterMode filter = SkFilterMode::kNearest) {
     return MakeOpaqueMideoTileImage(
         image, SourceInfo(), SkRect::MakeWH(3, 2),
         SkRect::MakeXYWH(1, 1, 3, 2), SkMatrix::Translate(1, 1),
-        SkSamplingOptions(SkFilterMode::kNearest), paint, clip_is_bw);
+        SkSamplingOptions(filter), paint, clip_is_bw);
   }
 
   std::array<uint8_t, 192> DrawImage(const SkImage* image,
@@ -157,6 +158,7 @@ TEST_F(MideoOpaquePixelsTest, userRechecksEveryTileAlphaOnEachRead) {
     const auto source = SourceImage();
     ASSERT_TRUE(source);
     ASSERT_TRUE(TileView(source.get()));
+    ASSERT_TRUE(TileView(source.get(), SkPaint(), true, SkFilterMode::kLinear));
   }
   for (size_t index = 3; index < pixels_.size(); index += 4) {
     // When 下一次读取实际像素变为合法 Premul 半透明或全透明。
@@ -168,6 +170,8 @@ TEST_F(MideoOpaquePixelsTest, userRechecksEveryTileAlphaOnEachRead) {
       const auto source = SourceImage();
       ASSERT_TRUE(source);
       EXPECT_FALSE(TileView(source.get()));
+      EXPECT_FALSE(TileView(source.get(), SkPaint(), true,
+                            SkFilterMode::kLinear));
       EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
     }
     pixels_ = original;
@@ -198,7 +202,8 @@ TEST_F(MideoOpaquePixelsTest, userKeepsTileFallbackOutsideVerifiedDrawBounds) {
   reject(src, SkRect::MakeWH(6, 4), matrix, nearest, paint, true);
   reject(src, dst, SkMatrix::Translate(0.5f, 0), nearest, paint, true);
   reject(src, dst, SkMatrix::Scale(2, 2), nearest, paint, true);
-  reject(src, dst, matrix, SkSamplingOptions(SkFilterMode::kLinear), paint,
+  reject(src, dst, SkMatrix::Translate(0.5f, 0),
+         SkSamplingOptions(SkFilterMode::kLinear), paint,
          true);
   reject(src, dst, matrix,
          SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNearest),

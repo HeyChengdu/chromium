@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: Skia 可读像素、混合模式完整定义、目标 BGRA 格式及同次读锁内绘制参数。
- * [OUTPUT]: 实像素核验后的无损写入结果与同次读锁临时绘制视图；拒绝不改源或目标。
+ * [OUTPUT]: 实像素核验后的无损写入结果与整数映射 nearest/linear 同次读锁视图；拒绝不改源或目标。
  * [POS]: 软件 Mideo 像素优化边界，通用 readPixels 与原 tile 绘制均由调用者保留。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -46,7 +46,8 @@ inline sk_sp<SkImage> MakeOpaqueMideoTileImage(
       (*blend != SkBlendMode::kSrc && *blend != SkBlendMode::kSrcOver) ||
       paint.getShader() || paint.getColorFilter() || paint.getMaskFilter() ||
       paint.getImageFilter() || sampling.useCubic || sampling.maxAniso != 0 ||
-      sampling.filter != SkFilterMode::kNearest ||
+      (sampling.filter != SkFilterMode::kNearest &&
+       sampling.filter != SkFilterMode::kLinear) ||
       sampling.mipmap != SkMipmapMode::kNone ||
       (matrix.getType() & ~SkMatrix::kTranslate_Mask) ||
       !integer(matrix.getTranslateX()) || !integer(matrix.getTranslateY()) ||
