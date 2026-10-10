@@ -196,6 +196,12 @@ TEST_F(MideoOpaquePixelsTest, userRechecksEveryTileAlphaOnEachRead) {
     ASSERT_TRUE(source);
     ASSERT_TRUE(TileView(source.get()));
     ASSERT_TRUE(TileView(source.get(), SkPaint(), true, SkFilterMode::kLinear));
+    for (auto filter : {SkFilterMode::kNearest, SkFilterMode::kLinear}) {
+      ASSERT_TRUE(MakeOpaqueMideoTileImage(
+          source.get(), SourceInfo(), SkRect::MakeXYWH(1, 0, 1, 1),
+          SkRect::MakeWH(1, 1), SkMatrix::I(), SkSamplingOptions(filter),
+          SkPaint(), true));
+    }
   }
   for (size_t index = 3; index < pixels_.size(); index += 4) {
     // When 下一次读取实际像素变为合法 Premul 半透明或全透明。
@@ -210,6 +216,13 @@ TEST_F(MideoOpaquePixelsTest, userRechecksEveryTileAlphaOnEachRead) {
       EXPECT_FALSE(TileView(source.get(), SkPaint(), true,
                             SkFilterMode::kLinear));
       EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
+      // Then subset 外的透明像素也必须触发整图重扫拒绝。
+      for (auto filter : {SkFilterMode::kNearest, SkFilterMode::kLinear}) {
+        EXPECT_FALSE(MakeOpaqueMideoTileImage(
+            source.get(), SourceInfo(), SkRect::MakeXYWH(1, 0, 1, 1),
+            SkRect::MakeWH(1, 1), SkMatrix::I(), SkSamplingOptions(filter),
+            SkPaint(), true));
+      }
     }
     pixels_ = original;
   }
@@ -235,6 +248,19 @@ TEST_F(MideoOpaquePixelsTest, userKeepsTileFallbackOutsideVerifiedDrawBounds) {
   SkPaint paint;
   reject(src, dst, matrix, nearest, paint, false);
   reject(SkRect::MakeWH(2, 2), dst, matrix, nearest, paint, true);
+  for (auto filter : {SkFilterMode::kNearest, SkFilterMode::kLinear}) {
+    for (auto invalid : {SkRect::MakeXYWH(0.5f, 0, 1, 1),
+                         SkRect::MakeXYWH(-1, 0, 1, 1),
+                         SkRect::MakeXYWH(3, 0, 1, 1),
+                         SkRect::MakeXYWH(0, 2, 1, 1),
+                         SkRect::MakeWH(0, 1),
+                         SkRect::MakeLTRB(2, 0, 1, 1)}) {
+      reject(invalid, SkRect::MakeWH(invalid.width(), invalid.height()),
+             matrix, SkSamplingOptions(filter), paint, true);
+    }
+    reject(SkRect::MakeWH(1, 1), dst, matrix, SkSamplingOptions(filter),
+           paint, true);
+  }
   reject(src, SkRect::MakeXYWH(1.5f, 1, 3, 2), matrix, nearest, paint, true);
   reject(src, SkRect::MakeWH(6, 4), matrix, nearest, paint, true);
   reject(src, dst, SkMatrix::Translate(0.5f, 0), nearest, paint, true);

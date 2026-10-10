@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: Skia 可读像素、混合模式完整定义、目标 BGRA 格式及同次读锁内绘制参数。
- * [OUTPUT]: 实像素核验后的无损写入结果与整数映射 nearest/linear 同次读锁视图；拒绝不改源或目标。
+ * [OUTPUT]: 整图实像素核验后的无损写入结果与整数 subset 映射 nearest/linear 同次读锁视图；拒绝不改源或目标。
  * [POS]: 软件 Mideo 像素优化边界，通用 readPixels 与原 tile 绘制均由调用者保留。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -70,9 +70,12 @@ inline sk_sp<SkImage> MakeOpaqueMideoTileImage(
       !SkColorSpace::Equals(source.colorSpace(), target.colorSpace()) ||
       source.rowBytes() != source.info().minRowBytes() ||
       reinterpret_cast<uintptr_t>(source.addr()) % alignof(uint32_t) != 0 ||
-      source_rect != SkRect::MakeWH(source.width(), source.height()) ||
-      destination_rect.width() != source.width() ||
-      destination_rect.height() != source.height() ||
+      !source_rect.isFinite() || source_rect.isEmpty() ||
+      !integer(source_rect.left()) || !integer(source_rect.top()) ||
+      !integer(source_rect.right()) || !integer(source_rect.bottom()) ||
+      !SkRect::MakeWH(source.width(), source.height()).contains(source_rect) ||
+      destination_rect.width() != source_rect.width() ||
+      destination_rect.height() != source_rect.height() ||
       !source.computeIsOpaque()) {
     return nullptr;
   }
