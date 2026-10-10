@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: VizTestSuite 的共享任务环境、真实 Skia 像素绘制、Mideo 软件 Surface 提交与帧交付协议。
- * [OUTPUT]: 全不透明像素、nearest/linear 临时 tile 视图及 Surface/Alpha/Resize 行为验收。
+ * [OUTPUT]: 全不透明像素、nearest/linear 完整源与整数 subset 视图及 Surface/Alpha/Resize 行为验收。
  * [POS]: Viz 软件 Mideo 定向测试目标，保留原绘制和呈现协议的回归守卫。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -65,7 +65,8 @@ class MideoOpaquePixelsTest : public testing::Test {
   std::array<uint8_t, 192> DrawImage(const SkImage* image,
                                    const SkPaint& paint, int clip,
                                    SkFilterMode filter = SkFilterMode::kNearest,
-                                   int translation = 1) {
+                                   int translation = 1,
+                                   SkRect source_rect = SkRect::MakeWH(3, 2)) {
     SkBitmap bitmap;
     bitmap.allocPixels(SourceInfo().makeWH(8, 6));
     bitmap.eraseARGB(255, 29, 53, 97);
@@ -79,8 +80,9 @@ class MideoOpaquePixelsTest : public testing::Test {
                       false);
     }
     canvas.setMatrix(SkMatrix::Translate(translation, translation));
-    canvas.drawImageRect(image, SkRect::MakeWH(3, 2),
-                         SkRect::MakeXYWH(1, 1, 3, 2),
+    canvas.drawImageRect(image, source_rect,
+                         SkRect::MakeXYWH(1, 1, source_rect.width(),
+                                          source_rect.height()),
                          SkSamplingOptions(filter), &paint,
                          SkCanvas::kStrict_SrcRectConstraint);
     std::array<uint8_t, 192> output{};
@@ -148,6 +150,41 @@ TEST_F(MideoOpaquePixelsTest, userDrawsLinearOpaqueTilePixelsExactly) {
       }
       EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
       EXPECT_EQ(pixels_, original);
+    }
+  }
+}
+
+TEST_F(MideoOpaquePixelsTest, userDrawsIntegerSubsetOpaqueTilePixelsExactly) {
+  // Given 高频 Premul 整图与包含于图像的整数 subset，目标背景非空。
+  const auto source = SourceImage();
+  ASSERT_TRUE(source);
+  const auto original = pixels_;
+  for (const auto src : {SkRect::MakeXYWH(0, 0, 2, 1),
+                         SkRect::MakeXYWH(1, 1, 2, 1),
+                         SkRect::MakeXYWH(1, 0, 1, 2)}) {
+    for (const auto filter : {SkFilterMode::kNearest, SkFilterMode::kLinear}) {
+      for (const auto blend : {SkBlendMode::kSrc, SkBlendMode::kSrcOver}) {
+        SkPaint paint;
+        paint.setBlendMode(blend);
+        for (int translation : {-1, 0, 1}) {
+          // When 同次读取建立整图只读视图，保持实际 subset 与原采样。
+          const auto view = MakeOpaqueMideoTileImage(
+              source.get(), SourceInfo(), src,
+              SkRect::MakeXYWH(1, 1, src.width(), src.height()),
+              SkMatrix::Translate(translation, translation),
+              SkSamplingOptions(filter), paint, true);
+          ASSERT_TRUE(view);
+          for (int clip : {0, 1, 2}) {
+            // Then 完整输出含边缘与未绘制区域逐字节相同，源不变。
+            EXPECT_EQ(DrawImage(source.get(), paint, clip, filter,
+                                translation, src),
+                      DrawImage(view.get(), paint, clip, filter,
+                                translation, src));
+          }
+          EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
+          EXPECT_EQ(pixels_, original);
+        }
+      }
     }
   }
 }
