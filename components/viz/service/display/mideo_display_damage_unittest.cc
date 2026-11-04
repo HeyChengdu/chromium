@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: VizTestSuite 的共享任务环境、真实 Skia 像素绘制、Mideo 软件 Surface 提交与帧交付协议。
- * [OUTPUT]: 全不透明像素、nearest/linear 完整源与整数 subset 视图及 Surface/Alpha/Resize 行为验收。
+ * [OUTPUT]: Tile 与 DPR2 物理一比一 Texture 的真实像素合同及 Surface/Alpha/Resize 行为验收。
  * [POS]: Viz 软件 Mideo 定向测试目标，保留原绘制和呈现协议的回归守卫。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -103,6 +103,42 @@ class MideoOpaquePixelsTest : public testing::Test {
       1, 37, 253, 255, 0, 255, 17, 255, 255, 0, 123, 255,
       64, 128, 192, 255, 7, 11, 13, 255, 239, 241, 251, 255};
 };
+
+TEST_F(MideoOpaquePixelsTest, userDrawsPhysicallyUnscaledTexturePixelsExactly) {
+  // Given DPR2 画布和半尺寸目标，组合映射仍为逐物理像素平移。
+  const auto source = SourceImage();
+  ASSERT_TRUE(source);
+  const auto original = pixels_;
+  const SkRect src = SkRect::MakeWH(3, 2);
+  const SkRect dst = SkRect::MakeXYWH(1, 1, 1.5f, 1);
+  const SkMatrix matrix = SkMatrix::Scale(2, 2);
+  for (const auto filter : {SkFilterMode::kNearest, SkFilterMode::kLinear}) {
+    SkPaint paint;
+    const SkSamplingOptions sampling(filter);
+    // When 同次读锁的完整真实 Alpha 允许视图；不改原 src/dst/CTM/采样。
+    const auto view = MakeOpaqueMideoTextureImage(
+        source.get(), SourceInfo(), src, dst, matrix, sampling, paint, true);
+    ASSERT_TRUE(view);
+    auto draw = [&](const SkImage* image) {
+      SkBitmap bitmap;
+      bitmap.allocPixels(SourceInfo().makeWH(8, 6));
+      bitmap.eraseARGB(255, 29, 53, 97);
+      SkCanvas canvas(bitmap);
+      canvas.clipRect(SkRect::MakeXYWH(2, 1, 3, 3),
+                      SkClipOp::kIntersect, false);
+      canvas.setMatrix(matrix);
+      canvas.drawImageRect(image, src, dst, sampling, &paint,
+                           SkCanvas::kStrict_SrcRectConstraint);
+      std::array<uint8_t, 192> output{};
+      EXPECT_TRUE(bitmap.readPixels(bitmap.info(), output.data(), 32, 0, 0));
+      return output;
+    };
+    // Then 完整目标字节精确，源契约和像素保持。
+    EXPECT_EQ(draw(source.get()), draw(view.get()));
+    EXPECT_EQ(source->alphaType(), kPremul_SkAlphaType);
+    EXPECT_EQ(pixels_, original);
+  }
+}
 
 TEST_F(MideoOpaquePixelsTest, userDrawsVerifiedOpaqueTilePixelsExactly) {
   // Given 实际非均匀 Premul 像素和非空目标背景，包含局部非AA剪裁。
