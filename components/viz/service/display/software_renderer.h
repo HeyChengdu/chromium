@@ -5,7 +5,7 @@
 /*
  * [INPUT]: 软件输出设备、聚合 Quad、SharedImage 读锁及已匹配 token 的 Mideo 请求。
  * [OUTPUT]: 正常软件绘制、呈现与有界 Mideo 帧交付。
- * [POS]: Viz DirectRenderer 软件实现，临时 tile 视图仅存在于同次同步绘制。
+ * [POS]: Viz DirectRenderer 软件实现，临时 Tile/Texture 视图仅存在于同次同步绘制。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
 
@@ -108,7 +108,7 @@ class VIZ_SERVICE_EXPORT SoftwareRenderer : public DirectRenderer {
   void DrawPictureQuad(const PictureDrawQuad* quad);
   void DrawRenderPassQuad(const AggregatedRenderPassDrawQuad* quad);
   void DrawSolidColorQuad(const SolidColorDrawQuad* quad);
-  void DrawTextureQuad(const TextureDrawQuad* quad);
+  void DrawTextureQuad(const TextureDrawQuad* quad, bool clip_is_bw);
   void DrawTileQuad(const TileDrawQuad* quad, bool clip_is_bw);
   void DrawUnsupportedQuad(const DrawQuad* quad);
   bool ShouldApplyBackdropFilters(

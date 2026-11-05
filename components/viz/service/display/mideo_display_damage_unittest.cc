@@ -140,6 +140,52 @@ TEST_F(MideoOpaquePixelsTest, userDrawsPhysicallyUnscaledTexturePixelsExactly) {
   }
 }
 
+TEST_F(MideoOpaquePixelsTest, userRejectsChangedTextureAlphaAndMapping) {
+  // Given 同一像素地址与原 Premul 图像，不缓存不透明结论。
+  const auto source = SourceImage();
+  ASSERT_TRUE(source);
+  const SkRect src = SkRect::MakeWH(3, 2);
+  const SkRect dst = SkRect::MakeXYWH(1, 1, 1.5f, 1);
+  const auto view = [&](SkMatrix matrix, SkPaint paint, bool clip_is_bw) {
+    return MakeOpaqueMideoTextureImage(
+        source.get(), SourceInfo(), src, dst, matrix,
+        SkSamplingOptions(SkFilterMode::kLinear), paint, clip_is_bw);
+  };
+  // When 每次创建新视图，完整扫描的任一像素 Alpha 改变。
+  ASSERT_TRUE(view(SkMatrix::Scale(2, 2), SkPaint(), true));
+  for (size_t alpha = 3; alpha < pixels_.size(); alpha += 4) {
+    pixels_[alpha] = 254;
+    EXPECT_FALSE(view(SkMatrix::Scale(2, 2), SkPaint(), true));
+    pixels_[alpha] = 255;
+  }
+  // Then 非等大、分数平移、透明 paint 或 AA 剪裁均保留回退。
+  EXPECT_FALSE(view(SkMatrix::Scale(1, 1), SkPaint(), true));
+  SkMatrix fractional = SkMatrix::Scale(2, 2);
+  fractional.postTranslate(0.5f, 0);
+  EXPECT_FALSE(view(fractional, SkPaint(), true));
+  SkPaint translucent;
+  translucent.setAlphaf(0.5f);
+  EXPECT_FALSE(view(SkMatrix::Scale(2, 2), translucent, true));
+  EXPECT_FALSE(view(SkMatrix::Scale(2, 2), SkPaint(), false));
+  const SkSamplingOptions sampling(SkFilterMode::kLinear);
+  EXPECT_FALSE(MakeOpaqueMideoTextureImage(
+      source.get(), SourceInfo(), src, dst, SkMatrix::Scale(2, 2), sampling,
+      SkPaint(), true, true));
+  EXPECT_FALSE(MakeOpaqueMideoTextureImage(
+      source.get(), SourceInfo(), src, dst, SkMatrix::Scale(2, 2), sampling,
+      SkPaint(), true, false, SkColors::kWhite));
+  EXPECT_FALSE(MakeOpaqueMideoTextureImage(
+      source.get(), SourceInfo().makeColorSpace(nullptr), src, dst,
+      SkMatrix::Scale(2, 2), sampling, SkPaint(), true));
+  EXPECT_FALSE(MakeOpaqueMideoTextureImage(
+      source.get(), SourceInfo().makeColorType(kRGBA_8888_SkColorType), src, dst,
+      SkMatrix::Scale(2, 2), sampling, SkPaint(), true));
+  EXPECT_FALSE(MakeOpaqueMideoTextureImage(
+      source.get(), SourceInfo(), SkRect::MakeWH(2, 2), dst,
+      SkMatrix::Scale(2, 2), sampling, SkPaint(), true));
+  EXPECT_TRUE(view(SkMatrix::Scale(2, 2), SkPaint(), true));
+}
+
 TEST_F(MideoOpaquePixelsTest, userDrawsVerifiedOpaqueTilePixelsExactly) {
   // Given 实际非均匀 Premul 像素和非空目标背景，包含局部非AA剪裁。
   const auto source = SourceImage();

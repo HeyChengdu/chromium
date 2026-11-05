@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: 真实软件 SharedImage、资源跨父子传输与 ScopedReadLockSkImage。
- * [OUTPUT]: 完整源及整数 subset 的 nearest/linear 临时 opaque 视图真实租约与归还验收。
+ * [OUTPUT]: Tile 与 DPR2 Texture 的 nearest/linear 临时 opaque 视图真实租约与归还验收。
  * [POS]: DisplayResourceProviderSoftware 契约测试，验证实际 GPU 服务资源生命周期。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -243,6 +243,11 @@ TEST_F(DisplayResourceProviderSoftwareTest,
           const auto view = MakeOpaqueMideoTileImage(
               lock.sk_image(), target.info(), rect, rect, SkMatrix::I(), sampling,
               paint, true);
+          const auto texture = MakeOpaqueMideoTextureImage(
+              lock.sk_image(), target.info(), SkRect::MakeWH(3, 2),
+              SkRect::MakeWH(1.5f, 1), SkMatrix::Scale(2, 2), sampling,
+              paint, true);
+          EXPECT_EQ(bool(texture), value != 0);
           EXPECT_EQ(bool(view), value != 0);
           EXPECT_EQ(lock.sk_image()->alphaType(), kPremul_SkAlphaType);
           // When 消费者不再使用资源，实际读锁内归还仍必须延后。
@@ -250,6 +255,18 @@ TEST_F(DisplayResourceProviderSoftwareTest,
           EXPECT_TRUE(returned.empty());
           EXPECT_EQ(*released, released_before);
           SkCanvas canvas(target);
+          canvas.save();
+          canvas.scale(2, 2);
+          canvas.drawImageRect(texture ? texture.get() : lock.sk_image(),
+                               SkRect::MakeWH(3, 2), SkRect::MakeWH(1.5f, 1),
+                               sampling, &paint, SkCanvas::kStrict_SrcRectConstraint);
+          canvas.restore();
+          for (int y = 0; y < 2; ++y) {
+            for (int x = 0; x < 3; ++x) {
+              EXPECT_EQ(*target.getAddr32(x, y), value);
+            }
+          }
+          target.eraseColor(SK_ColorTRANSPARENT);
           canvas.drawImageRect(view ? view.get() : lock.sk_image(), rect, rect,
                                sampling, &paint, SkCanvas::kStrict_SrcRectConstraint);
           // Then 同步绘制完整像素正确，视图在读锁之前销毁。

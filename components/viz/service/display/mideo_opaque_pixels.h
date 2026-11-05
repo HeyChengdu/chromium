@@ -4,7 +4,7 @@
 
 /*
  * [INPUT]: Skia 可读像素、混合模式完整定义、目标 BGRA 格式及同次读锁内绘制参数。
- * [OUTPUT]: 整图实像素核验后的无损写入与 Tile 视图；Texture 合同入口暂时拒绝，等待实际像素红灯。
+ * [OUTPUT]: 整图实像素核验后的无损写入、Tile 视图与物理等大 Texture 视图。
  * [POS]: 软件 Mideo 像素优化边界，通用 readPixels 与原 tile 绘制均由调用者保留。
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
  */
@@ -24,19 +24,6 @@
 #include "third_party/skia/include/core/SkSamplingOptions.h"
 
 namespace viz {
-
-// 先由真实像素合同拒绝尚未实现的纹理视图；普通绘制继续使用原图像。
-inline sk_sp<SkImage> MakeOpaqueMideoTextureImage(
-    const SkImage* image,
-    const SkImageInfo& target,
-    const SkRect& source_rect,
-    const SkRect& destination_rect,
-    const SkMatrix& matrix,
-    const SkSamplingOptions& sampling,
-    const SkPaint& paint,
-    bool clip_is_bw) {
-  return nullptr;
-}
 
 // 只允许同次 SharedImage 读锁内创建、同步绘制并销毁，不缓存视图或 Alpha。
 inline sk_sp<SkImage> MakeOpaqueMideoTileImage(
@@ -96,6 +83,31 @@ inline sk_sp<SkImage> MakeOpaqueMideoTileImage(
   const SkPixmap opaque(source.info().makeAlphaType(kOpaque_SkAlphaType),
                         source.addr(), source.rowBytes());
   return SkImages::RasterFromPixmap(opaque, nullptr, nullptr);
+}
+
+// 只以组合映射证明物理等大；调用者仍以原参数绘制，不使用验证用矩形。
+inline sk_sp<SkImage> MakeOpaqueMideoTextureImage(
+    const SkImage* image,
+    const SkImageInfo& target,
+    const SkRect& source_rect,
+    const SkRect& destination_rect,
+    const SkMatrix& matrix,
+    const SkSamplingOptions& sampling,
+    const SkPaint& paint,
+    bool clip_is_bw,
+    bool y_flipped = false,
+    SkColor4f background = SkColors::kTransparent) {
+  if (y_flipped || background != SkColors::kTransparent || !image ||
+      source_rect != SkRect::MakeWH(image->width(), image->height()) ||
+      source_rect.isEmpty() || !destination_rect.isFinite() ||
+      destination_rect.isEmpty()) {
+    return nullptr;
+  }
+  const SkMatrix combined =
+      matrix * SkMatrix::RectToRect(source_rect, destination_rect);
+  // 复用原 Tile 的严格单位映射、格式、paint 与逐次全图 Alpha 核验。
+  return MakeOpaqueMideoTileImage(image, target, source_rect, source_rect,
+                                 combined, sampling, paint, clip_is_bw);
 }
 
 // 所有格式和容量检查均在扫描前完成，Alpha 检查均在写入前完成。

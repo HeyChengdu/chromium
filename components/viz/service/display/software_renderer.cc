@@ -413,7 +413,8 @@ void SoftwareRenderer::DoDrawQuad(const DrawQuad* quad,
       DrawSolidColorQuad(SolidColorDrawQuad::MaterialCast(quad));
       break;
     case DrawQuad::Material::kTextureContent:
-      DrawTextureQuad(TextureDrawQuad::MaterialCast(quad));
+      DrawTextureQuad(TextureDrawQuad::MaterialCast(quad),
+                      !should_apply_rounded_corner);
       break;
     case DrawQuad::Material::kTiledContent:
       // 新画布的初始剪裁、scissor 与 draw_region 均为非AA；rounded 为AA。
@@ -506,7 +507,8 @@ void SoftwareRenderer::DrawSolidColorQuad(const SolidColorDrawQuad* quad) {
                             current_paint_);
 }
 
-void SoftwareRenderer::DrawTextureQuad(const TextureDrawQuad* quad) {
+void SoftwareRenderer::DrawTextureQuad(const TextureDrawQuad* quad,
+                                       bool clip_is_bw) {
   if (!IsSoftwareResource(quad->resource_id)) {
     DrawUnsupportedQuad(quad);
     return;
@@ -553,7 +555,19 @@ void SoftwareRenderer::DrawTextureQuad(const TextureDrawQuad* quad) {
   }
   SkSamplingOptions sampling(quad->nearest_neighbor ? SkFilterMode::kNearest
                                                     : SkFilterMode::kLinear);
-  current_canvas_->drawImageRect(image, sk_uv_rect, quad_rect, sampling,
+  // 别名在读锁之后声明并先销毁；实际 Alpha 每次复查，不改变原绘制参数。
+  const auto opaque = pending_mideo_frame_
+                          ? MakeOpaqueMideoTextureImage(
+                                image, current_canvas_->imageInfo(), sk_uv_rect,
+                                quad_rect, current_canvas_->getTotalMatrix(),
+                                sampling, current_paint_, clip_is_bw, y_flipped,
+                                quad->background_color)
+                          : nullptr;
+  if (opaque) {
+    TRACE_EVENT_INSTANT("viz", "Mideo.OpaqueTextureView");
+  }
+  current_canvas_->drawImageRect(opaque ? opaque.get() : image,
+                                 sk_uv_rect, quad_rect, sampling,
                                  &current_paint_,
                                  SkCanvas::kStrict_SrcRectConstraint);
 }

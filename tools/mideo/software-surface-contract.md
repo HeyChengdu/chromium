@@ -1,5 +1,34 @@
 # Mideo 软件输出 Surface 契约
 
+## 2026-11-05 Texture 视图实验边界
+
+定向运行 `41915843678` 已实际链接软件测试目标，并执行 29 项合同。
+唯一失败是新 Texture 用例的 `ASSERT_TRUE(view)`。拒绝占位返回空视图。
+这是预期红灯，尚未执行该视图的像素比较，也没有性能收益结论。
+
+机制参考官方 `google/skia`，固定 Chromium DEPS 中的 commit
+`5456aa926156029fac5cdf5cf5a863cbe9cf3a75`。实际查阅的文件为
+`src/core/SkBitmapDevice.cpp`、`src/core/SkDraw.cpp` 和
+`src/core/SkSpriteBlitter_ARGB32.cpp`，文件头标明 BSD-style 许可证。
+本实验独立实现守卫，不复制这些文件的代码。
+参考源码显示，原图像矩形映射与 CTM 组合后参与 sprite 判定；
+sprite 的源 Alpha 标志取决于源视图的 isOpaque。
+该机制不能证明课程 Texture 的真实 Alpha 或 CPU 份额。
+
+候选只评估精确 token 目标绘制中的全图 Texture。
+必须拒绝 yflip、非透明背景、非单位 paint Alpha、滤镜和抗锯齿。
+原 src 到 dst 映射与 CTM 的乘积必须严格为单位缩放及整数平移。
+源与目标必须满足原 sRGB、BGRA、Alpha 和紧密步长契约。
+每次必须在同一 SharedImage 读锁内扫描全图实际 Alpha。
+只有全部 Alpha 为 255，才可创建本次只读 opaque 别名。
+绘制仍传递原 src、dst、sampling 和 strict source 参数。
+别名必须先于读锁销毁，不缓存 Alpha，不修改源元数据。
+所有拒绝继续原绘制，现有 Tile 守卫保持。
+
+后续必须验证实际像素、透明和格式拒绝、组合映射边界、
+逐次 Alpha 变更及真实共享读锁生命周期，再执行原生绿灯。
+课程命中率和扫描后的端到端收益仍待独立测量。
+
 ## 2026-10-06 全不透明像素优化的红灯契约
 
 真实课程 `37482055331` 的 120 次 ReadPixels 全部精确配对；51 个 CPU
