@@ -1,5 +1,50 @@
 # Mideo 软件输出 Surface 契约
 
+## 2026-11-06 外部 BeginFrame 的排序边界
+
+本次只读审计固定源码 `32f140f7df6525dd99de935a80f53fc73ab2f49b`。
+现有机制尚不能证明两个 CDP 命令可安全合并提交。
+当前不修改协议、启动配置或生产调度，也不据此启动构建。
+
+`RenderWidgetHostImpl::CapturePresentedMideoFrame` 先等待 Viz 接受 Arm，
+再发送 `Widget.ForceRedrawForMideo`。该 Mojo 方法没有 renderer 回执。
+`WidgetBase::ForceRedrawForMideo` 安装 token swap promise，再请求 forced commit。
+浏览器发送完成不能证明 renderer 已执行上述两步。
+独立外部 tick 因此缺少可证明的跨通道排序。
+
+普通 `Widget.ForceRedraw` 虽有回执，但回执等待下一帧 presentation。
+它不能充当 tick 前的 ready 屏障，否则可能等待尚未发出的 tick。
+`RenderWidgetHostImpl::FlushForTesting` 只刷新 InputRouter。
+不能把它当成 Widget 通道的执行回执。
+
+Headless BeginFrame 要求创建时启用控制，并启用全部合成阶段标志。
+controller 未绑定时，`ui::Compositor` 会缓存 tick。
+`ExternalBeginFrameSourceMojo` 拒绝重叠 tick。
+root 缺失或有 pending Surface 时，回执可为无 damage 的 NAK。
+wait-all 分支还会丢弃 pending CopyOutput 请求。
+BeginFrameAck 因此不能替代 Mideo 精确 token 的最终呈现成功。
+带 screenshot 的 CopyFromSurface 也不能替代共享交付合同。
+
+已读 `HeadlessWebContentsBeginFrameControlBasicTest`。
+它检查蓝页首次截图和第二次无截图，并允许首次缺图后重试。
+该用例没有覆盖 Mideo pending forced commit 或跨通道排序。
+本次未运行该测试，没有新的像素或性能结果。
+
+若后续评估新接缝，必须先建立以下独立验收合同：
+
+1. Viz 接受 Arm 后，renderer 明确确认相同 token 的 promise 已安装，
+   且 forced commit 已请求。ready 不表示提交或呈现已经完成。
+2. 控制器在 ready 后只发送一个外部 tick。
+   分别验证 tick ack 与原 Mideo copy+presentation 成功。
+3. 真实验证 NAK、断连、超时和重叠拒绝，检查失败后的租约释放。
+4. 保留普通 damage 绘制、目标完整重建及全部 token 守卫。
+   在 DPR2 下与独立 PNG 比较完整像素，覆盖透明和变化恢复。
+5. 先验证上述行为，再以固定输入测量全部请求分布。
+   不以 tick ack、提交数量或均值宣布每帧低于 10ms。
+
+这些是尚未实现的验收要求，不是新增协议的可用性证明。
+当前停止扩展 BeginFrame 泛查，转向已有实测成本的窄审计。
+
 ## 2026-11-06 rAF 边界独立实验
 
 首次独立运行 42143593539 在首场景失败。零与一轮 rAF 完整像素相等，
