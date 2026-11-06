@@ -2,6 +2,14 @@
 
 ## 2026-11-06 rAF 边界独立实验
 
+首次独立运行 42143593539 在首场景失败。零与一轮 rAF 完整像素相等，
+无 clip PNG 的图标映射约为共享路径的两倍。不能据此判定 rAF 安全。
+PageHandler 的无 clip 截图临时修改 emulation scale，截图后恢复原配置。
+修订实验使用显式 1280×720、scale1 clip，仍要求完整 2560×1440 BGRA。
+实验记录 PNG 前后 DOM、DPR、visualViewport 与 layout metrics。
+PNG 后再次共享捕获必须与截图前完整像素相等。禁止事后缩图或容差比较。
+此参考配置仍须真实 Linux 运行验证，源码推断不等于像素验收。
+
 `verify_raf_boundary.py` 复用已验 32f140f Linux runtime。
 独立 workflow 固定来源 run、artifact、源码与 Shell SHA256。
 它不编译 Chromium，也不修改生产等待策略。

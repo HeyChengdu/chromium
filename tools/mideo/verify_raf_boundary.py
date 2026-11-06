@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """[INPUT]: 已验 Linux Shell 与 Browser 的真实 CDP、mmap 和租约端口。
-[OUTPUT]: DPR2 混合画面的零/一 rAF/PNG 全字节对照证据。
+[OUTPUT]: DPR2 混合画面的零/一 rAF/显式裁切 PNG 全字节及视口恢复证据。
 [POS]: 独立实验合同；不证明课程性能，不修改生产等待策略。
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
 """
@@ -38,6 +38,19 @@ def verify(binary, output):
         finally:
             browser.release(meta)
 
+    def geometry():
+        result = browser.send('Runtime.evaluate', dict(
+            expression='''(() => {
+              const rect = document.querySelector('canvas').getBoundingClientRect();
+              const v = window.visualViewport;
+              return {dpr:devicePixelRatio, innerWidth, innerHeight,
+                canvas:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+                visualViewport:{width:v.width,height:v.height,scale:v.scale,
+                  offsetLeft:v.offsetLeft,offsetTop:v.offsetTop}};
+            })()''', returnByValue=True))
+        return dict(dom=result['result']['value'],
+                    layout=browser.send('Page.getLayoutMetrics', {}))
+
     try:
         browser.send('Emulation.setDeviceMetricsOverride', dict(
             width=1280, height=720, deviceScaleFactor=2, mobile=False,
@@ -70,17 +83,31 @@ def verify(binary, output):
             zero = capture()
             browser.evaluate('new Promise(r => requestAnimationFrame(r))')
             one = capture()
-            png = base64.b64decode(browser.capture('png')['data'])
+            before_png = geometry()
+            # 无 clip 路径会另改 emulation scale；显式物理映射不做事后缩图。
+            png = base64.b64decode(browser.send('Page.captureScreenshot', dict(
+                format='png', fromSurface=True, captureBeyondViewport=False,
+                optimizeForSpeed=True,
+                clip=dict(x=0, y=0, width=1280, height=720, scale=1)))['data'])
+            after_png = geometry()
+            restored = capture()
             decoded = Image.open(io.BytesIO(png)).convert('RGBA')
             assert decoded.size == (2560, 1440), decoded.size
             baseline = decoded.tobytes('raw', 'BGRA')
             row = dict(frame=frame, zeroEqualsOne=zero == one,
                        oneEqualsPng=one == baseline,
+                       oneEqualsRestored=one == restored,
+                       geometryBeforePng=before_png, geometryAfterPng=after_png,
+                       geometryRestored=before_png == after_png,
+                       dprIsTwo=before_png['dom']['dpr'] == 2,
                        zeroSha256=hashlib.sha256(zero).hexdigest(),
                        oneSha256=hashlib.sha256(one).hexdigest())
             rows.append(row)
-            if not (row['zeroEqualsOne'] and row['oneEqualsPng']):
-                for label, data in (('zero', zero), ('one', one), ('png', baseline)):
+            if not all(row[key] for key in (
+                    'zeroEqualsOne', 'oneEqualsPng', 'oneEqualsRestored',
+                    'geometryRestored', 'dprIsTwo')):
+                for label, data in (('zero', zero), ('one', one),
+                                    ('png', baseline), ('restored', restored)):
                     Image.frombytes('RGBA', (2560, 1440), data, 'raw', 'BGRA').save(
                         output / f'{len(rows)}-{label}.png')
                 raise AssertionError(row)
