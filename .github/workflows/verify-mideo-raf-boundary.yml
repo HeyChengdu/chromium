@@ -1,0 +1,63 @@
+# [INPUT]: 固定已验 runtime artifact 及独立 rAF 像素合同。
+# [OUTPUT]: 完整 BGRA 对照报告；不构建 Chromium，不验课程性能。
+# [POS]: Mideo 实验调度边界的短 Linux 验证入口。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md。
+name: Verify Mideo RAF boundary
+on:
+  push:
+    branches: [codex/mideo-opaque-texture-contract]
+    paths:
+      - tools/mideo/verify_raf_boundary.py
+      - .github/workflows/verify-mideo-raf-boundary.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - name: Fetch exact accepted runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence runtime
+          gh api repos/HeyChengdu/chromium/actions/runs/41996750208 > evidence/source-run.json
+          gh api repos/HeyChengdu/chromium/actions/artifacts/13414000240 > evidence/source-artifact.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          commit = '32f140f7df6525dd99de935a80f53fc73ab2f49b'
+          run = json.loads(Path('evidence/source-run.json').read_text())
+          artifact = json.loads(Path('evidence/source-artifact.json').read_text())
+          assert run['head_sha'] == commit
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert artifact['id'] == 13414000240 and not artifact['expired']
+          assert artifact['workflow_run']['id'] == 41996750208
+          assert artifact['name'] == 'mideo-shared-runtime-linux-x64-' + commit
+          PY
+          gh api repos/HeyChengdu/chromium/actions/artifacts/13414000240/zip > runtime.zip
+          unzip -q runtime.zip -d archive
+          tar -xzf archive/mideo-shared-runtime-linux-x64.tar.gz -C runtime
+          test "$(cat runtime/chromium-commit.txt)" = 32f140f7df6525dd99de935a80f53fc73ab2f49b
+          echo 'f6801c9167af08600780e2d577e075061b0a1b76a558ec2e8a1265caa80d85a1  runtime/headless_shell' | sha256sum -c -
+          sha256sum runtime.zip archive/* runtime/headless_shell > evidence/input-sha256.txt
+      - name: Execute independent pixel contract
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 fonts-noto-cjk
+          python3 -m venv .venv
+          .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
+          chmod +x runtime/headless_shell
+          .venv/bin/python tools/mideo/verify_raf_boundary.py runtime/headless_shell evidence/pixels
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-raf-boundary-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
