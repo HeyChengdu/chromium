@@ -5,6 +5,10 @@
 name: Verify Mideo external tick
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/mideo-opaque-texture-contract]
+    paths:
+      - .github/workflows/verify-mideo-external-tick.yml
 permissions:
   contents: read
   actions: read
