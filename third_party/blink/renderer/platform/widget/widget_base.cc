@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 // [INPUT]: WidgetBase 声明、LayerTreeHost 与 Widget 客户端。
-// [OUTPUT]: Widget 生命周期、原 token 强制绘制和实验 ready 拒绝占位。
+// [OUTPUT]: Widget 生命周期、token 强制绘制及安装完成后的实验 ready 回执。
 // [POS]: Blink Widget 平台实现；原 Mideo 绘制路径保持。
 // [PROTOCOL]: 变更时检查 AGENTS.md。
 #include "third_party/blink/renderer/platform/widget/widget_base.h"
@@ -471,9 +471,9 @@ void WidgetBase::ForceRedrawForMideo(
 void WidgetBase::PrepareMideoFrameForExternalTick(
     const base::UnguessableToken& frame_token,
     PrepareMideoFrameForExternalTickCallback callback) {
-  // 先以真实 renderer 拒绝建立红灯，不把接收请求冒充 ready。
-  LOG(INFO) << "MIDEO_EXTERNAL_TICK_STUB_REJECTED";
-  std::move(callback).Run(false);
+  // 复用相同 token 的 promise 安装和 forced commit 请求；回执不等待呈现。
+  ForceRedrawForMideo(frame_token);
+  std::move(callback).Run(true);
 }
 
 void WidgetBase::GetWidgetInputHandler(

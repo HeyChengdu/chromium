@@ -5,8 +5,8 @@
 实验只由本地显式开关 `--mideo-experimental-external-tick` 启用。
 原共享捕获默认不传 `prepareForExternalTick`，仍执行原 Force。
 实验请求在 Viz 接受 Arm 后调用独立 Widget 方法。
-该方法目前直接回执 false，不安装 promise 或请求绘制。
-此占位用于建立真实 renderer 行为红灯。
+初始方法直接回执 false，不安装 promise 或请求绘制。
+该占位用于建立真实 renderer 行为红灯。
 源码 b4f8c25 已在运行 42369606621 完成完整 Shell 链接。
 该运行在 ready 前收到即时 Viz 失败，未达到目标红灯。
 
@@ -41,6 +41,15 @@ Emulation 只调整子视图，不负责调整 Headless 根窗口。
 后续驱动沿用已验 DPR2 合同的 2560×1440 根窗口。
 驱动同时归档窗口、布局与 DOM 几何，并严格检查尺寸。
 此初始化修订尚未执行，不能声明已确认失败根因。
+短运行 42388039406 已确认真实拒绝红灯。
+同一已构建 Shell 的标记、序号零 ready false、原 Viz 失败终态
+和指定红灯断言全部匹配，完整日志及制品已下载核验。
+
+后续实现复用原 ForceRedrawForMideo，再回执 true。
+原方法依次安装相同 token 的 swap promise、请求 forced commit，
+并调用既有测试动画调度入口。回执只确认上述同步步骤已返回。
+回执不承诺 commit、swap、copy 或 presentation 已完成。
+此绿色候选尚未编译或执行，后续像素与失败恢复场景均待验证。
 JS 门禁尚未运行，实验不证明性能或整课质量。
 
 ## 2026-11-06 外部 BeginFrame 的排序边界

@@ -111,7 +111,8 @@ interface Widget {
   // Tags the next forced compositor frame for direct Mideo delivery by Viz.
   ForceRedrawForMideo(mojo_base.mojom.UnguessableToken frame_token);
 
-  // 独立实验接口；拒绝占位不安装 promise，也不请求绘制。
+  // 独立实验接口；同 token 的 promise 安装及 forced commit 请求后回执。
+  // ready 不代表提交或呈现成功，最终交付仍由 Viz 独立确认。
   PrepareMideoFrameForExternalTick(
       mojo_base.mojom.UnguessableToken frame_token) => (bool ready);
 
