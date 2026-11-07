@@ -23,7 +23,8 @@ class ExternalTickBrowser(Browser):
         self.transcript = []
         self.pending = set()
         self.transcript_bytes = 0
-        super().__init__(binary, directory, 2560, 1440, window_size=(1280, 720),
+        # 根窗口控制 Display 尺寸；DPR2 的逻辑视口另由 Emulation 设置。
+        super().__init__(binary, directory, 2560, 1440,
                          extra_switches=('--enable-begin-frame-control',
                                          '--run-all-compositor-stages-before-draw',
                                          '--enable-logging=stderr', '--log-level=0',
@@ -102,6 +103,16 @@ def verify(binary, output):
         browser.send('Emulation.setDeviceMetricsOverride', dict(
             width=1280, height=720, deviceScaleFactor=2, mobile=False,
             viewport=dict(x=0,y=0,width=1280,height=720,scale=1)))
+        report['initialGeometry'] = dict(
+            window=browser.send('Browser.getWindowForTarget'),
+            layout=browser.send('Page.getLayoutMetrics'),
+            dom=browser.send('Runtime.evaluate', dict(
+                expression='({dpr:devicePixelRatio,width:innerWidth,height:innerHeight,scale:visualViewport.scale})',
+                returnByValue=True)))
+        bounds = report['initialGeometry']['window']['bounds']
+        assert (bounds['width'], bounds['height']) == (2560, 1440), bounds
+        dom = report['initialGeometry']['dom']['result']['value']
+        assert dom == dict(dpr=2, width=1280, height=720, scale=1), dom
         # 初始 Surface 必须实际提交；此 tick 不计入捕获实验。
         browser.tick()
         browser.evaluate('''document.body.innerHTML = `<style>body{margin:0;background:#102030;color:white}

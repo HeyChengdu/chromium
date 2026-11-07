@@ -1,0 +1,67 @@
+# [INPUT]: 固定 b4f8c25 Shell 制品和当前独立实验驱动。
+# [OUTPUT]: 窗口几何、完整 CDP 与 renderer 拒绝合同证据。
+# [POS]: 免费 Linux 短验证入口；不编译 Chromium，不复用 checkpoint。
+# [PROTOCOL]: 变更时检查 AGENTS.md。
+name: Verify Mideo external tick
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/mideo
+      - name: Fetch pinned experimental Shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GODEBUG: http2client=0
+        run: |
+          set -euo pipefail
+          mkdir -p evidence runtime
+          gh api repos/HeyChengdu/chromium/actions/runs/42369606621 > evidence/source-run.json
+          gh api repos/HeyChengdu/chromium/actions/artifacts/13577190861 > evidence/source-artifact.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          source = 'b4f8c2527e73dcca93677eea10c61c1a225ac02f'
+          run = json.loads(Path('evidence/source-run.json').read_text())
+          artifact = json.loads(Path('evidence/source-artifact.json').read_text())
+          assert run['head_sha'] == source and run['status'] == 'completed'
+          # 原运行在实验驱动失败；只复用其已链接且逐字节固定的 Shell。
+          assert run['conclusion'] == 'failure'
+          assert artifact['id'] == 13577190861 and not artifact['expired']
+          assert artifact['workflow_run']['id'] == 42369606621
+          assert artifact['name'] == 'candidate-headless-shell-' + source
+          assert artifact['size_in_bytes'] == 131038629
+          assert artifact['digest'] == 'sha256:57c2a2b551022308117563ed93add7f024dab31afd812f6dce828db1f0c03db4'
+          Path('evidence/identity.json').write_text(json.dumps(dict(
+              binarySource=source, controller=os.environ['GITHUB_SHA'],
+              sourceRun=42369606621, sourceArtifact=13577190861), indent=2))
+          PY
+          gh api repos/HeyChengdu/chromium/actions/artifacts/13577190861/zip > runtime.zip
+          echo '57c2a2b551022308117563ed93add7f024dab31afd812f6dce828db1f0c03db4  runtime.zip' | sha256sum -c -
+          unzip -q runtime.zip -d archive
+          tar -xzf archive/mideo-headless-shell-linux-x64.tar.gz -C runtime
+          test "$(cat runtime/chromium-commit.txt)" = b4f8c2527e73dcca93677eea10c61c1a225ac02f
+          echo '04dbf6a830401b61ea3215d04f2f5331adfdbc540240b00e228b0887b9f47fcb  runtime/headless_shell' | sha256sum -c -
+          sha256sum tools/mideo/verify_external_tick.py tools/mideo/shared_frame_buffer_smoke.py runtime/headless_shell > evidence/input-sha256.txt
+      - name: Execute revised initialization and ready contract
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 fonts-noto-cjk
+          python3 -m venv .venv
+          .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
+          chmod +x runtime/headless_shell
+          .venv/bin/python tools/mideo/verify_external_tick.py --binary "$PWD/runtime/headless_shell" --output "$PWD/evidence/external-tick"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mideo-external-tick-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
