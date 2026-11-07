@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: Page 协议声明、Widget 宿主与独占共享槽文件。
+// [OUTPUT]: 原共享帧响应与显式开关限制的实验 ready 事件。
+// [POS]: CDP 到共享呈现协议入口；ready 不释放 Viz 持有的槽。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 #include "content/browser/devtools/protocol/page_handler.h"
 
 #include <algorithm>
@@ -2116,6 +2120,7 @@ Response PageHandler::ReleaseMideoFrame(int slot, const std::string& sequence) {
 }
 
 void PageHandler::CaptureMideoFrame(
+    std::optional<bool> prepare_for_external_tick,
     std::unique_ptr<CaptureMideoFrameCallback> callback) {
   if (!host_ || !host_->GetRenderWidgetHost() ||
       !host_->GetRenderWidgetHost()->GetView()) {
@@ -2132,13 +2137,22 @@ void PageHandler::CaptureMideoFrame(
         "Mideo requires a trusted local shared-frame session"));
     return;
   }
+  const bool external_tick = prepare_for_external_tick.value_or(false);
+  if (external_tick && !base::CommandLine::ForCurrentProcess()->HasSwitch(
+                           "mideo-experimental-external-tick")) {
+    callback->sendFailure(Response::InvalidParams(
+        "Mideo external tick experiment is disabled"));
+    return;
+  }
   CaptureMideoFrameIntoBuffer(
       host_->GetRenderWidgetHost()->GetView()->GetViewBounds().size(),
+      external_tick,
       std::move(callback));
 }
 
 void PageHandler::CaptureMideoFrameIntoBuffer(
     const gfx::Size& size,
+    bool prepare_for_external_tick,
     std::unique_ptr<CaptureMideoFrameCallback> callback) {
   if (mideo_capture_pending_ || mideo_initializing_ ||
       (mideo_frame_buffer_ && !mideo_frame_buffer_->Matches(size))) {
@@ -2163,7 +2177,8 @@ void PageHandler::CaptureMideoFrameIntoBuffer(
                        command.GetSwitchValuePath(kMideoFrameBufferSwitch),
                        size, slots),
         base::BindOnce(&PageHandler::MideoBufferReady,
-                       weak_factory_.GetWeakPtr(), size, std::move(callback)));
+                       weak_factory_.GetWeakPtr(), size,
+                       prepare_for_external_tick, std::move(callback)));
     return;
   }
   auto sequence = mideo_frame_buffer_->Reserve();
@@ -2173,6 +2188,20 @@ void PageHandler::CaptureMideoFrameIntoBuffer(
   }
   TRACE_EVENT_INSTANT("viz", "Mideo.CaptureRequest", "sequence", *sequence);
   mideo_capture_pending_ = true;
+  if (prepare_for_external_tick) {
+    mideo_external_tick_sequence_ = *sequence;
+  }
+  base::OnceCallback<void(bool)> ready_callback;
+  if (prepare_for_external_tick) {
+    ready_callback = base::BindOnce(
+        [](base::WeakPtr<PageHandler> handler, uint64_t sequence, bool ready) {
+          if (handler && handler->mideo_capture_pending_ &&
+              handler->mideo_external_tick_sequence_ == sequence) {
+            handler->frontend_->MideoFrameReady(
+                base::NumberToString(sequence), ready);
+          }
+        }, weak_factory_.GetWeakPtr(), *sequence);
+  }
   base::ScopedClosureRunner capturer;
   if (auto* wc = WebContents::FromRenderFrameHost(host_)) {
     capturer = wc->IncrementCapturerCount(gfx::Size(), true, true, false);
@@ -2191,6 +2220,7 @@ void PageHandler::CaptureMideoFrameIntoBuffer(
             TRACE_EVENT_INSTANT("viz", "Mideo.CaptureResult", "sequence",
                                 sequence);
             handler->mideo_capture_pending_ = false;
+            handler->mideo_external_tick_sequence_.reset();
             auto& buffer = *handler->mideo_frame_buffer_;
             if (!success) {
               buffer.Release(buffer.Slot(sequence),
@@ -2203,11 +2233,12 @@ void PageHandler::CaptureMideoFrameIntoBuffer(
                 Binary::fromVector(buffer.Metadata(sequence)));
           },
           weak_factory_.GetWeakPtr(), *sequence, std::move(capturer),
-          std::move(callback)));
+          std::move(callback)), std::move(ready_callback));
 }
 
 void PageHandler::MideoBufferReady(
     const gfx::Size& size,
+    bool prepare_for_external_tick,
     std::unique_ptr<CaptureMideoFrameCallback> callback,
     std::unique_ptr<MideoFrameBuffer> buffer) {
   mideo_initializing_ = false;
@@ -2218,7 +2249,8 @@ void PageHandler::MideoBufferReady(
     return;
   }
   mideo_frame_buffer_ = std::move(buffer);
-  CaptureMideoFrameIntoBuffer(size, std::move(callback));
+  CaptureMideoFrameIntoBuffer(size, prepare_for_external_tick,
+                              std::move(callback));
 }
 
 Response PageHandler::StopLoading() {

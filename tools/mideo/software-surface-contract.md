@@ -1,5 +1,39 @@
 # Mideo 软件输出 Surface 契约
 
+## 2026-11-07 独立外部 tick 红灯合同草稿
+
+实验只由本地显式开关 `--mideo-experimental-external-tick` 启用。
+原共享捕获默认不传 `prepareForExternalTick`，仍执行原 Force。
+实验请求在 Viz 接受 Arm 后调用独立 Widget 方法。
+该方法目前直接回执 false，不安装 promise 或请求绘制。
+此占位用于建立真实 renderer 行为红灯，尚未编译验证。
+
+Page 的 ready 事件携带当前槽序号，最终响应仍等待原 Viz 终态。
+ready 失败不提前释放槽。Viz 原 15 秒超时负责失败终态。
+迟到回执必须仍匹配 pending 请求与序号，否则不发送事件。
+实验没有新增取消协议，也没有放宽 copy 与 presentation 双条件。
+
+独立 Python 驱动使用单接收循环缓存乱序响应与事件。
+驱动限制八个并发请求、4096 个事件和 32MiB 接收证据。
+未知响应、重复响应及错误 ready 序号均拒绝。
+ready 后只发一个无截图 tick，分别检查 tick 与共享捕获结果。
+PNG 参考异步请求后获得一个有界 tick，不因缺图自动重试。
+DPR2 混合透明画面的全部 BGRA、PNG 与恢复帧保留到制品。
+外部控制下的 PNG 排序尚待真实运行，不称像素通过。
+
+JS Inspector Protocol 草稿覆盖参数类型及原 trusted local 门禁。
+JS 门禁不能替代 Headless 本地 mmap 的完整像素合同。
+现有构建工作流新增显式 `external_tick_check` 模式。
+该模式仍完整构建 Shell 并运行原36质量门禁，跳过旧四浏览器采样。
+独立脚本须同时核对 renderer 拒绝占位日志、ready false 与原失败终态。
+三项均通过后，才抛出目标红灯断言。
+默认断连回执 false 不能单独证明占位执行。
+绿色实现还必须通过无 tick 的真实 Viz 超时与后续槽恢复。
+断连场景只检查结束独立会话，不声称同会话恢复。
+编译失败、未知 CDP 方法或初始化失败均不算目标红灯。
+仅同一新源码 SHA 的 checkpoint 可用于续编。
+当前草稿未提交、未执行，不证明性能或整课质量。
+
 ## 2026-11-06 外部 BeginFrame 的排序边界
 
 本次只读审计固定源码 `32f140f7df6525dd99de935a80f53fc73ab2f49b`。

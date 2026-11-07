@@ -4,6 +4,10 @@
 #
 # Contributing to Chrome DevTools Protocol: https://goo.gle/devtools-contribution-guide-cdp
 
+# [INPUT]: Page 页面、截图与本地共享捕获能力。
+# [OUTPUT]: Page CDP 命令及独立 Mideo ready 事件定义。
+# [POS]: 浏览器 Page 协议真相源；实验参数默认关闭。
+# [PROTOCOL]: 变更时检查 AGENTS.md。
 # Actions and events related to the inspected page belong to the page domain.
 domain Page
   depends on Debugger
@@ -605,9 +609,18 @@ domain Page
   # Delivers the next tagged, presented compositor frame directly from Viz's
   # final software display canvas into the configured Mideo shared buffer.
   experimental command captureMideoFrame
+    parameters
+      # Requires the explicit local Mideo external-tick experiment switch.
+      optional boolean prepareForExternalTick
     returns
       # Versioned shared-buffer slot metadata.
       binary data
+
+  # Experimental renderer readiness, separate from final shared-frame delivery.
+  experimental event mideoFrameReady
+    parameters
+      string sequence
+      boolean ready
 
   # Releases a Mideo shared-memory slot after the consumer has finished reading.
   experimental command releaseMideoFrame

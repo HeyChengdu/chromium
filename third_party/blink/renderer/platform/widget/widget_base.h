@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: Widget Mojo 请求、LayerTreeHost 与 Widget 客户端。
+// [OUTPUT]: Widget 生命周期、原 Mideo 强制绘制及实验 ready 实现声明。
+// [POS]: Blink Widget 平台入口；实验方法不改变原绘制入口。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WIDGET_WIDGET_BASE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WIDGET_WIDGET_BASE_H_
 
@@ -164,6 +168,9 @@ class PLATFORM_EXPORT WidgetBase : public mojom::blink::Widget,
   // mojom::blink::Widget overrides:
   void ForceRedraw(mojom::blink::Widget::ForceRedrawCallback callback) override;
   void ForceRedrawForMideo(const base::UnguessableToken& frame_token) override;
+  void PrepareMideoFrameForExternalTick(
+      const base::UnguessableToken& frame_token,
+      PrepareMideoFrameForExternalTickCallback callback) override;
   void UpdateVisualProperties(
       const VisualProperties& visual_properties) override;
   void UpdateScreenRects(const gfx::Rect& widget_screen_rect,

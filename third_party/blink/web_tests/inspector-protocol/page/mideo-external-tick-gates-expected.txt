@@ -1,0 +1,4 @@
+Mideo external tick protocol gates
+Rejects non-boolean experiment parameter: true
+Preserves trusted local shared-frame gate: true
+

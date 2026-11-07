@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: Widget 宿主声明、Viz Arm 与 Blink Widget Mojo。
+// [OUTPUT]: 原共享呈现请求及显式实验 ready 调度。
+// [POS]: Arm 接受之后的 renderer 调度接缝，呈现终态仍由 Viz 返回。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 
 #include <math.h>
@@ -2336,7 +2340,8 @@ void RenderWidgetHostImpl::CapturePresentedMideoFrame(
     const base::UnguessableToken& buffer_id,
     uint64_t buffer_offset,
     const gfx::Size& size,
-    base::OnceCallback<void(bool)> callback) {
+    base::OnceCallback<void(bool)> callback,
+    base::OnceCallback<void(bool)> ready_callback) {
   if (!view_ || !blink_widget_.is_bound()) {
     std::move(callback).Run(false);
     return;
@@ -2352,14 +2357,24 @@ void RenderWidgetHostImpl::CapturePresentedMideoFrame(
       size,
       base::BindOnce(
           [](base::WeakPtr<RenderWidgetHostImpl> host,
-             base::UnguessableToken frame_token, bool accepted) {
+             base::UnguessableToken frame_token,
+             base::OnceCallback<void(bool)> ready_callback, bool accepted) {
             if (!accepted || !host || !host->blink_widget_.is_bound()) {
+              if (ready_callback) {
+                std::move(ready_callback).Run(false);
+              }
+              return;
+            }
+            if (ready_callback) {
+              host->blink_widget_->PrepareMideoFrameForExternalTick(
+                  frame_token, mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+                                   std::move(ready_callback), false));
               return;
             }
             TRACE_EVENT("viz", "Mideo.ForceTaggedRedraw");
             host->blink_widget_->ForceRedrawForMideo(frame_token);
           },
-          weak_factory_.GetWeakPtr(), frame_token),
+          weak_factory_.GetWeakPtr(), frame_token, std::move(ready_callback)),
       std::move(callback));
 }
 

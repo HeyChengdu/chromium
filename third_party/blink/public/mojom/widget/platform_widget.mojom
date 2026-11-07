@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: 浏览器 Widget 通道的绘制请求和 Mideo token。
+// [OUTPUT]: Widget Mojo 接口及独立实验 ready 回执。
+// [POS]: 浏览器与 Blink Widget 的协议边界；原 Mideo 入口保持。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 module blink.mojom;
 
 import "cc/mojom/render_frame_metadata.mojom";
@@ -106,6 +110,10 @@ interface Widget {
 
   // Tags the next forced compositor frame for direct Mideo delivery by Viz.
   ForceRedrawForMideo(mojo_base.mojom.UnguessableToken frame_token);
+
+  // 独立实验接口；拒绝占位不安装 promise，也不请求绘制。
+  PrepareMideoFrameForExternalTick(
+      mojo_base.mojom.UnguessableToken frame_token) => (bool ready);
 
   // Update the visual properties of the widget.
   UpdateVisualProperties(VisualProperties visual_properties);

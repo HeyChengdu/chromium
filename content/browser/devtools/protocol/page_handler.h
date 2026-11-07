@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: Page CDP 契约、Widget 宿主与本地共享槽。
+// [OUTPUT]: Page 命令实现及实验 ready 事件声明。
+// [POS]: 浏览器 Page 协议边界，保持槽预留与呈现终态分离。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 #ifndef CONTENT_BROWSER_DEVTOOLS_PROTOCOL_PAGE_HANDLER_H_
 #define CONTENT_BROWSER_DEVTOOLS_PROTOCOL_PAGE_HANDLER_H_
 
@@ -161,6 +165,7 @@ class PageHandler : public DevToolsDomainHandler,
       std::optional<bool> optimize_for_speed,
       std::unique_ptr<CaptureScreenshotCallback> callback) override;
   void CaptureMideoFrame(
+      std::optional<bool> prepare_for_external_tick,
       std::unique_ptr<CaptureMideoFrameCallback> callback) override;
   Response ReleaseMideoFrame(int slot, const std::string& sequence) override;
   void CaptureSnapshot(
@@ -261,12 +266,15 @@ class PageHandler : public DevToolsDomainHandler,
                           const gfx::Image& image);
   void CaptureMideoFrameIntoBuffer(
       const gfx::Size& size,
+      bool prepare_for_external_tick,
       std::unique_ptr<CaptureMideoFrameCallback> callback);
   void MideoBufferReady(const gfx::Size& size,
+                        bool prepare_for_external_tick,
                         std::unique_ptr<CaptureMideoFrameCallback> callback,
                         std::unique_ptr<MideoFrameBuffer> buffer);
   bool mideo_initializing_ = false;
   bool mideo_capture_pending_ = false;
+  std::optional<uint64_t> mideo_external_tick_sequence_;
 
   // RenderWidgetHostObserver overrides.
   void RenderWidgetHostVisibilityChanged(RenderWidgetHost* widget_host,

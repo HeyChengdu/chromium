@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: WidgetBase 声明、LayerTreeHost 与 Widget 客户端。
+// [OUTPUT]: Widget 生命周期、原 token 强制绘制和实验 ready 拒绝占位。
+// [POS]: Blink Widget 平台实现；原 Mideo 绘制路径保持。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 #include "third_party/blink/renderer/platform/widget/widget_base.h"
 
 #include <algorithm>
@@ -462,6 +466,14 @@ void WidgetBase::ForceRedrawForMideo(
       std::make_unique<MideoFrameSwapPromise>(frame_token));
   LayerTreeHost()->SetNeedsCommitWithForcedRedraw();
   client_->ScheduleAnimationForWebTests();
+}
+
+void WidgetBase::PrepareMideoFrameForExternalTick(
+    const base::UnguessableToken& frame_token,
+    PrepareMideoFrameForExternalTickCallback callback) {
+  // 先以真实 renderer 拒绝建立红灯，不把接收请求冒充 ready。
+  LOG(INFO) << "MIDEO_EXTERNAL_TICK_STUB_REJECTED";
+  std::move(callback).Run(false);
 }
 
 void WidgetBase::GetWidgetInputHandler(

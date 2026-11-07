@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""真实 Chromium/FFmpeg 门禁：像素、连续帧、槽位背压、成片差异与捕获耗时。"""
+"""[INPUT]: 真实 Chromium/FFmpeg、CDP WebSocket 与共享槽文件。
+[OUTPUT]: 像素、背压与编码门禁，以及可显式追加实验启动参数的 Browser。
+[POS]: Mideo 真实工具合同；默认启动参数保持原样。
+[PROTOCOL]: 变更时检查 AGENTS.md。
+"""
 import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +25,8 @@ from PIL import Image
 import websocket
 
 class Browser:
-    def __init__(self, binary, directory, width, height, mideo=True, window_size=None):
+    def __init__(self, binary, directory, width, height, mideo=True, window_size=None,
+                 extra_switches=()):
         self.width, self.height = width, height
         self.frame_bytes = width * height * 4
         self.path = directory / 'frames.bgra'
@@ -37,6 +42,7 @@ class Browser:
             'about:blank']
         if mideo:
             command[1:1] = [f'--mideo-frame-buffer={self.path}', '--mideo-frame-buffer-slots=3']
+        command[1:1] = list(extra_switches)
         self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=self.log)
         self.socket = None
         self.request_id = 0

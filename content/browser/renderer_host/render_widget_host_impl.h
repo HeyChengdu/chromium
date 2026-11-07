@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// [INPUT]: 浏览器 Widget 状态与 Viz 共享帧 Arm 能力。
+// [OUTPUT]: Widget 宿主接口和独立实验 renderer ready 回执。
+// [POS]: 浏览器到 Blink Widget 的调度边界。
+// [PROTOCOL]: 变更时检查 AGENTS.md。
 #ifndef CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_IMPL_H_
 #define CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_IMPL_H_
 
@@ -456,7 +460,8 @@ class CONTENT_EXPORT RenderWidgetHostImpl
                                   const base::UnguessableToken& buffer_id,
                                   uint64_t buffer_offset,
                                   const gfx::Size& size,
-                                  base::OnceCallback<void(bool)> callback);
+                                  base::OnceCallback<void(bool)> callback,
+                                  base::OnceCallback<void(bool)> ready_callback = {});
 
   using GetSnapshotFromBrowserCallback =
       base::OnceCallback<void(const gfx::Image&)>;

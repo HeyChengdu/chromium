@@ -39,6 +39,10 @@ on:
         description: 仅编译本次 Mideo 改动对象，快速检查 C++/Mojo 错误
         type: boolean
         default: false
+      external_tick_check:
+        description: 完整构建后验证独立外部tick红绿合同，保留36质量门禁并跳过旧四浏览器采样
+        type: boolean
+        default: false
       diagnose_delivery_only:
         description: 仅复用 profile_run/profile_commit 候选定位交付失败，不编译
         type: boolean
@@ -55,7 +59,28 @@ permissions:
   actions: read
 
 jobs:
+  validate-inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Validate external tick mode before scheduling builds
+        env:
+          EXPERIMENT: ${{ inputs.external_tick_check }}
+          BUILD_COMMIT: ${{ inputs.build_commit || github.sha }}
+          CONTROLLER_SHA: ${{ github.sha }}
+          COMPILE_ONLY: ${{ inputs.compile_check_only }}
+          MEDIA_ONLY: ${{ inputs.media_only }}
+          PROFILE_ONLY: ${{ inputs.profile_only }}
+          DIAGNOSE_ONLY: ${{ inputs.diagnose_delivery_only }}
+        run: |
+          if [ "$EXPERIMENT" = true ]; then
+            test "$BUILD_COMMIT" = "$CONTROLLER_SHA"
+            for mode in "$COMPILE_ONLY" "$MEDIA_ONLY" "$PROFILE_ONLY" "$DIAGNOSE_ONLY"; do
+              test "$mode" != true
+            done
+          fi
   linux-x64:
+    needs: validate-inputs
     if: ${{ inputs.media_only != true && inputs.profile_only != true && inputs.diagnose_delivery_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -344,6 +369,7 @@ jobs:
           retention-days: 14
 
   media:
+    needs: validate-inputs
     if: ${{ inputs.profile_only != true && inputs.compile_check_only != true && inputs.diagnose_delivery_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -388,7 +414,13 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install websocket-client==1.8.0 Pillow==11.3.0
           .venv/bin/python tools/mideo/shared_frame_buffer_smoke.py "$PWD/runtime/headless_shell" "$PWD/runtime/ffmpeg" --report runtime/validation.json
+      - name: Verify experimental renderer ready and external tick
+        if: ${{ inputs.external_tick_check == true }}
+        timeout-minutes: 5
+        run: |
+          .venv/bin/python tools/mideo/verify_external_tick.py --binary "$PWD/runtime/headless_shell" --output "$PWD/runtime/external-tick"
       - name: Measure shared-frame stages with four browsers
+        if: ${{ inputs.external_tick_check != true }}
         timeout-minutes: 15
         run: |
           .venv/bin/python tools/mideo/trace_shared_frame.py "$PWD/runtime/headless_shell" runtime/capture-trace.json
@@ -411,10 +443,12 @@ jobs:
             runtime/capture-trace.json
             runtime/capture-trace.json.gz
             runtime/verification/
+            runtime/external-tick/
           if-no-files-found: warn
           retention-days: 14
 
   diagnose-delivery:
+    needs: validate-inputs
     if: ${{ inputs.diagnose_delivery_only == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -461,6 +495,7 @@ jobs:
           retention-days: 7
 
   profile:
+    needs: validate-inputs
     if: ${{ inputs.profile_only == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
